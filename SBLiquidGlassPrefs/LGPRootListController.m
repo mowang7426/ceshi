@@ -585,6 +585,145 @@ static NSString * const kLGRuntimeCacheUsageBytesKey = @"__runtime_cache_usage_b
     return body;
 }
 
+#pragma mark - Section body (分组标题，不可点击)
+
+- (UIView *)lgSectionBodyForItem:(NSDictionary *)item {
+    UIView *body = [[UIView alloc] initWithFrame:CGRectZero];
+    UIStackView *stack = [[UIStackView alloc] initWithFrame:CGRectZero];
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.spacing = 4.0;
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    [body addSubview:stack];
+
+    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+    titleLabel.text = item[@"title"];
+    titleLabel.font = [UIFont systemFontOfSize:19.0 weight:UIFontWeightBold];
+    titleLabel.textColor = [UIColor labelColor];
+    [stack addArrangedSubview:titleLabel];
+
+    NSString *subtitle = item[@"subtitle"];
+    if (subtitle.length) {
+        UILabel *subtitleLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+        subtitleLabel.text = subtitle;
+        subtitleLabel.numberOfLines = 0;
+        subtitleLabel.textColor = [UIColor secondaryLabelColor];
+        subtitleLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightMedium];
+        [stack addArrangedSubview:subtitleLabel];
+    }
+
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.topAnchor constraintEqualToAnchor:body.topAnchor constant:14.0],
+        [stack.leadingAnchor constraintEqualToAnchor:body.leadingAnchor constant:14.0],
+        [stack.trailingAnchor constraintEqualToAnchor:body.trailingAnchor constant:-14.0],
+        [stack.bottomAnchor constraintEqualToAnchor:body.bottomAnchor constant:-10.0],
+    ]];
+    return body;
+}
+
+#pragma mark - Text body (文本输入，点击弹出输入框)
+
+- (UIView *)lgTextBodyForItem:(NSDictionary *)item {
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeCustom];
+    button.translatesAutoresizingMaskIntoConstraints = NO;
+    button.contentHorizontalAlignment = UIControlContentHorizontalAlignmentFill;
+    button.contentVerticalAlignment = UIControlContentVerticalAlignmentFill;
+
+    NSString *key = item[@"key"];
+    NSString *placeholder = item[@"placeholder"] ?: @"";
+    id storedValue = LGReadPreferenceObject(key, item[@"default"] ?: @"");
+    NSString *currentValue = [storedValue isKindOfClass:[NSString class]] ? storedValue : @"";
+
+    __weak typeof(self) weakSelf = self;
+    [button addAction:[UIAction actionWithHandler:^(__kindof UIAction * _Nonnull action) {
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+
+        UIAlertController *alert = [UIAlertController
+            alertControllerWithTitle:item[@"title"]
+                             message:item[@"subtitle"]
+                      preferredStyle:UIAlertControllerStyleAlert];
+        [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+            textField.text = currentValue;
+            textField.placeholder = placeholder;
+            textField.font = [UIFont systemFontOfSize:15.0];
+            textField.clearButtonMode = UITextFieldViewModeWhileEditing;
+        }];
+        [alert addAction:[UIAlertAction actionWithTitle:@"取消"
+                                                  style:UIAlertActionStyleCancel
+                                                handler:nil]];
+        [alert addAction:[UIAlertAction actionWithTitle:@"确定"
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(UIAlertAction * _Nonnull alertAction) {
+            NSString *newValue = alert.textFields.firstObject.text ?: @"";
+            LGWritePreferenceObject(key, newValue);
+            [strongSelf rebuildSettingsPage];
+            [strongSelf updateRespringBarAnimated:YES];
+        }]];
+        [strongSelf presentViewController:alert animated:YES completion:nil];
+    }] forControlEvents:UIControlEventTouchUpInside];
+
+    UIView *body = [[UIView alloc] initWithFrame:CGRectZero];
+    body.userInteractionEnabled = NO;
+    UIStackView *stack = [[UIStackView alloc] initWithFrame:CGRectZero];
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.spacing = 6.0;
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    [body addSubview:stack];
+
+    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+    titleLabel.text = item[@"title"];
+    titleLabel.font = [UIFont systemFontOfSize:17.0 weight:UIFontWeightSemibold];
+    titleLabel.textColor = [UIColor labelColor];
+
+    UILabel *valueLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+    valueLabel.text = currentValue.length ? currentValue : placeholder;
+    valueLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightRegular];
+    valueLabel.textColor = currentValue.length ? [UIColor systemBlueColor] : [UIColor tertiaryLabelColor];
+    valueLabel.numberOfLines = 2;
+    valueLabel.lineBreakMode = NSLineBreakByTruncatingMiddle;
+
+    UIImageView *chevron = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"chevron.right"]];
+    chevron.tintColor = [UIColor tertiaryLabelColor];
+    chevron.contentMode = UIViewContentModeScaleAspectFit;
+    [chevron.widthAnchor constraintEqualToConstant:10.0].active = YES;
+    [chevron.heightAnchor constraintEqualToConstant:16.0].active = YES;
+
+    UIView *headerRow = [[UIView alloc] initWithFrame:CGRectZero];
+    headerRow.translatesAutoresizingMaskIntoConstraints = NO;
+    [headerRow addSubview:titleLabel];
+    [headerRow addSubview:chevron];
+    titleLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    chevron.translatesAutoresizingMaskIntoConstraints = NO;
+    [NSLayoutConstraint activateConstraints:@[
+        [titleLabel.leadingAnchor constraintEqualToAnchor:headerRow.leadingAnchor],
+        [titleLabel.topAnchor constraintEqualToAnchor:headerRow.topAnchor],
+        [titleLabel.bottomAnchor constraintEqualToAnchor:headerRow.bottomAnchor],
+        [chevron.trailingAnchor constraintEqualToAnchor:headerRow.trailingAnchor],
+        [chevron.centerYAnchor constraintEqualToAnchor:titleLabel.centerYAnchor],
+        [titleLabel.trailingAnchor constraintLessThanOrEqualToAnchor:chevron.leadingAnchor constant:-8.0],
+    ]];
+
+    [stack addArrangedSubview:headerRow];
+    [stack addArrangedSubview:valueLabel];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.topAnchor constraintEqualToAnchor:body.topAnchor constant:13.0],
+        [stack.leadingAnchor constraintEqualToAnchor:body.leadingAnchor constant:14.0],
+        [stack.trailingAnchor constraintEqualToAnchor:body.trailingAnchor constant:-14.0],
+        [stack.bottomAnchor constraintEqualToAnchor:body.bottomAnchor constant:-13.0],
+    ]];
+
+    [button addSubview:body];
+    body.translatesAutoresizingMaskIntoConstraints = NO;
+    [NSLayoutConstraint activateConstraints:@[
+        [body.topAnchor constraintEqualToAnchor:button.topAnchor],
+        [body.leadingAnchor constraintEqualToAnchor:button.leadingAnchor],
+        [body.trailingAnchor constraintEqualToAnchor:button.trailingAnchor],
+        [body.bottomAnchor constraintEqualToAnchor:button.bottomAnchor],
+    ]];
+    return button;
+}
+
 - (UIView *)lgNavBodyForItem:(NSDictionary *)item {
     UIButton *button = [UIButton buttonWithType:UIButtonTypeCustom];
     button.translatesAutoresizingMaskIntoConstraints = NO;
@@ -654,6 +793,12 @@ static NSString * const kLGRuntimeCacheUsageBytesKey = @"__runtime_cache_usage_b
     }
     if ([type isEqualToString:@"menu"]) {
         return [self lgMenuBodyForItem:item];
+    }
+    if ([type isEqualToString:@"section"]) {
+        return [self lgSectionBodyForItem:item];
+    }
+    if ([type isEqualToString:@"text"]) {
+        return [self lgTextBodyForItem:item];
     }
     return [self lgNavBodyForItem:item];
 }
