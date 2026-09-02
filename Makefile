@@ -17,7 +17,8 @@ sbliquidglass_FILES     = Tweak.x Hooks/Dock.x Hooks/Folder.x Hooks/AppIcons.x H
                       SBLiquidGlassPrefs/LGPrefsLiquidSwitch.m \
                       Shared/LGGlassKit.x Shared/LGLiveBackdropView.m \
                       Shared/LGWallpaperBlurCache.m \
-                      Shared/LGSharedSupport.m
+                      Shared/LGSharedSupport.m \
+                      Hooks/AssistiveTouchTextAdaptive.x
 
 sbliquidglass_CFLAGS    = -fobjc-arc -DSBLIQUIDGLASS_DEBUG=$(SBLIQUIDGLASS_DEBUG)
 sbliquidglass_FRAMEWORKS = UIKit QuartzCore CoreText CoreGraphics CoreMotion CoreImage
