@@ -1,5 +1,6 @@
-// AssistiveTouch 小白点菜单文字自适应 v3
+// AssistiveTouch 小白点菜单文字自适应 v3.1
 // 直接 hook AssistiveTouch 窗口，强制把文字和图标改成深色（浅色背景下清晰可见）
+// v3.1 修复：method swizzle 可能误替换 UIView 的 layoutSubviews 导致崩溃
 // 编译时需要加入 Makefile 的 FILES 列表
 
 #import <Foundation/Foundation.h>
@@ -11,6 +12,8 @@
 // 判断是否是 AssistiveTouch 窗口
 static BOOL ATIsAssistiveTouchWindow(UIWindow *window) {
     if (!window) return NO;
+    // 安全检查：必须是真正的 UIWindow（防止 swizzle 到 UIView 的方法导致崩溃）
+    if (![window isKindOfClass:[UIWindow class]]) return NO;
     NSString *className = NSStringFromClass([window class]);
     // 类名包含 ASTouch 或 AssistiveTouch
     if ([className rangeOfString:@"ASTouch" options:NSCaseInsensitiveSearch].location != NSNotFound) return YES;
@@ -102,7 +105,10 @@ static void (*original_UIWindow_layoutSubviews)(UIWindow *, SEL);
 static void hooked_UIWindow_layoutSubviews(UIWindow *self, SEL _cmd) {
     original_UIWindow_layoutSubviews(self, _cmd);
     @autoreleasepool {
-        ATApplyToWindowIfNeeded(self);
+        // 安全检查：只有真正的 UIWindow 才处理（防止 swizzle 到 UIView 的方法导致崩溃）
+        if ([self isKindOfClass:[UIWindow class]]) {
+            ATApplyToWindowIfNeeded(self);
+        }
     }
 }
 
@@ -186,6 +192,6 @@ static void AssistiveTouchTextAdaptiveInitialize(void) {
             }
         }
 
-        NSLog(@"[ATTextAdaptive] v3 已加载 - AssistiveTouch 小白点文字自适应");
+        NSLog(@"[ATTextAdaptive] v3.1 已加载 - AssistiveTouch 小白点文字自适应（已修复崩溃）");
     }
 }
