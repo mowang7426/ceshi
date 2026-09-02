@@ -747,3 +747,13 @@ void LGRemoveGlassFromMaterial(UIView *mat, const void *assocKey) {
     mat.hidden = NO;
     [glass removeFromSuperview];
 }
+
+BOOL LGMaterialHasGlass(UIView *materialView, const void *assocKey) {
+    if (!materialView || !assocKey) return NO;
+    @try {
+        LGLiveBackdropView *glass = objc_getAssociatedObject(materialView, assocKey);
+        return glass != nil;
+    } @catch (__unused NSException *e) {
+        return NO;
+    }
+}
