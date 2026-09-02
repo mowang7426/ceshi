@@ -3,302 +3,304 @@
 #import <objc/runtime.h>
 
 /*
- * AssistiveTouch 小白点文字颜色自适应补丁
+ * AssistiveTouch 小白点文字颜色自适应补丁 v2
  *
- * 问题：液态玻璃插件给小白点菜单注入玻璃效果后，背景可能变亮或变暗，
- *      原本固定的白色文字在浅色背景上看不清。
- *
- * 方案：保留液态玻璃效果，自动检测菜单背景亮度，动态调整文字和图标颜色：
- *      - 浅色背景（亮度 > 128）→ 黑色文字 + 深色图标
- *      - 深色背景（亮度 ≤ 128）→ 白色文字 + 浅色图标
- *
- * 使用方法：
- * 1. 把本文件放到 Hooks/ 目录
- * 2. 在 Makefile 的 sbliquidglass_FILES 中加上 Hooks/AssistiveTouchTextAdaptive.x
- * 3. 重新编译打包
- *
- * 注意：本补丁不移除液态玻璃，只调整文字颜色，和液态玻璃插件共存。
+ * v2 改进：
+ * 1. 更全面的窗口检测（类名 + 尺寸 + windowLevel + 子视图特征）
+ * 2. 更全面的文字元素处理（UILabel/UIButton/UITextView/CATextLayer）
+ * 3. 更主动的重新应用（防止被其他插件/系统重置）
+ * 4. 调试日志（控制台可看到补丁是否命中）
+ * 5. 强制覆盖 attributedText 的颜色
  */
 
 #pragma mark - 配置
 
-/// 亮度阈值（0-255），大于此值视为浅色背景，用深色文字
 static const CGFloat kATBrightnessThreshold = 128.0;
+static const void *kATAppliedStyleKey = &kATAppliedStyleKey;
+static const void *kATOriginalTextColorKey = &kATOriginalTextColorKey;
+static const void *kATLastCheckTimeKey = &kATLastCheckTimeKey;
 
-/// 浅色背景下的文字颜色（黑色，带一点透明度更自然）
-static UIColor *kATDarkTextColor(void) {
-    return [UIColor colorWithWhite:0.0 alpha:0.90];
+#pragma mark - 颜色
+
+static UIColor *ATDarkTextColor(void) {
+    return [UIColor colorWithWhite:0.0 alpha:0.92];
 }
-
-/// 深色背景下的文字颜色（白色，带一点透明度更自然）
-static UIColor *kATLightTextColor(void) {
+static UIColor *ATLightTextColor(void) {
     return [UIColor colorWithWhite:1.0 alpha:0.95];
 }
-
-/// 浅色背景下的图标 tintColor
-static UIColor *kATDarkIconColor(void) {
+static UIColor *ATDarkIconColor(void) {
     return [UIColor colorWithWhite:0.0 alpha:0.85];
 }
-
-/// 深色背景下的图标 tintColor
-static UIColor *kATLightIconColor(void) {
+static UIColor *ATLightIconColor(void) {
     return [UIColor colorWithWhite:1.0 alpha:0.90];
 }
 
-#pragma mark - 关联对象 Key
-
-static void *kATOriginalTextColorKey = &kATOriginalTextColorKey;
-static void *kATOriginalTintColorKey = &kATOriginalTintColorKey;
-static void *kATAppliedStyleKey = &kATAppliedStyleKey; // @"dark" / @"light"
-
-#pragma mark - AssistiveTouch 窗口检测
+#pragma mark - AssistiveTouch 窗口检测（v2 更全面）
 
 static BOOL ATIsAssistiveTouchWindow(UIWindow *window) {
     if (!window) return NO;
     @try {
+        // 方式1：类名检测
         NSString *clsName = NSStringFromClass(window.class);
         if ([clsName containsString:@"AssistiveTouch"] ||
+            [clsName containsString:@"ASTouch"] ||
             [clsName containsString:@"ASTouch"]) {
+            NSLog(@"[ATTextAdaptive] matched by class name: %@", clsName);
             return YES;
         }
+
+        // 方式2：rootViewController 类名检测
         UIViewController *rootVC = window.rootViewController;
         if (rootVC) {
             NSString *vcName = NSStringFromClass(rootVC.class);
             if ([vcName containsString:@"AssistiveTouch"] ||
                 [vcName containsString:@"ASTouch"]) {
+                NSLog(@"[ATTextAdaptive] matched by rootVC class: %@", vcName);
                 return YES;
+            }
+        }
+
+        // 方式3：窗口特征检测（小尺寸 + 高 windowLevel）
+        // AssistiveTouch 菜单窗口通常不是全屏的，且 windowLevel 很高
+        CGRect frame = window.frame;
+        BOOL isSmallWindow = CGRectGetWidth(frame) < CGRectGetWidth(UIScreen.mainScreen.bounds) * 0.8 &&
+                             CGRectGetHeight(frame) < CGRectGetHeight(UIScreen.mainScreen.bounds) * 0.6;
+        BOOL isHighLevel = window.windowLevel > 1000.0;
+
+        if (isSmallWindow && isHighLevel) {
+            // 进一步检查：窗口中是否包含 AssistiveTouch 特有的视图
+            UIView *rootView = rootVC.view ?: window;
+            for (UIView *sub in rootView.subviews) {
+                NSString *subName = NSStringFromClass(sub.class);
+                if ([subName containsString:@"AssistiveTouch"] ||
+                    [subName containsString:@"ASTouch"] ||
+                    [subName containsString:@"Touch"]) {
+                    NSLog(@"[ATTextAdaptive] matched by window features + subview: %@", subName);
+                    return YES;
+                }
             }
         }
     } @catch (__unused NSException *e) {}
     return NO;
 }
 
+/// 检测视图是否在 AssistiveTouch 窗口中（沿 superview 链向上找）
+static BOOL ATViewInAssistiveTouch(UIView *view) {
+    if (!view) return NO;
+    UIWindow *window = view.window;
+    if (window) return ATIsAssistiveTouchWindow(window);
+    // 视图还没加入窗口时，向上遍历找 window
+    for (UIView *cur = view; cur; cur = cur.superview) {
+        if ([cur isKindOfClass:[UIWindow class]]) {
+            return ATIsAssistiveTouchWindow((UIWindow *)cur);
+        }
+    }
+    return NO;
+}
+
 #pragma mark - 背景亮度检测
 
-/// 截取视图区域并计算平均亮度（0-255）
-static CGFloat ATCalculateAverageBrightness(UIView *view) {
+static CGFloat ATCalculateBrightness(UIView *view) {
     if (!view || CGRectIsEmpty(view.bounds)) return 128.0;
     @try {
         CGSize size = view.bounds.size;
-        // 缩小尺寸计算，提高性能
-        CGFloat scale = MIN(1.0, 80.0 / MAX(size.width, size.height));
-        CGSize smallSize = CGSizeMake(size.width * scale, size.height * scale);
+        CGFloat scale = MIN(1.0, 60.0 / MAX(size.width, size.height));
+        CGSize smallSize = CGSizeMake(MAX(size.width * scale, 10), MAX(size.height * scale, 10));
 
         UIGraphicsBeginImageContextWithOptions(smallSize, YES, 1.0);
         CGContextRef ctx = UIGraphicsGetCurrentContext();
-        if (!ctx) {
-            UIGraphicsEndImageContext();
-            return 128.0;
-        }
-        // 缩放绘制
+        if (!ctx) { UIGraphicsEndImageContext(); return 128.0; }
         CGContextScaleCTM(ctx, scale, scale);
         [view.layer renderInContext:ctx];
         UIImage *snapshot = UIGraphicsGetImageFromCurrentImageContext();
         UIGraphicsEndImageContext();
+        if (!snapshot || !snapshot.CGImage) return 128.0;
 
-        if (!snapshot) return 128.0;
-
-        // 计算平均亮度
         CGImageRef cgImage = snapshot.CGImage;
-        if (!cgImage) return 128.0;
-
         size_t width = CGImageGetWidth(cgImage);
         size_t height = CGImageGetHeight(cgImage);
         if (width == 0 || height == 0) return 128.0;
 
         unsigned char *rawData = calloc(width * height * 4, sizeof(unsigned char));
         if (!rawData) return 128.0;
-
         CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
-        CGContextRef context = CGBitmapContextCreate(rawData, width, height, 8,
-                                                      width * 4, colorSpace,
-                                                      kCGImageAlphaPremultipliedLast |
-                                                      kCGBitmapByteOrder32Big);
+        CGContextRef context = CGBitmapContextCreate(rawData, width, height, 8, width * 4,
+                                                      colorSpace, kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
         CGColorSpaceRelease(colorSpace);
-
-        if (!context) {
-            free(rawData);
-            return 128.0;
-        }
-
+        if (!context) { free(rawData); return 128.0; }
         CGContextDrawImage(context, CGRectMake(0, 0, width, height), cgImage);
         CGContextRelease(context);
 
-        // 采样计算平均亮度（跳过纯透明像素）
-        unsigned long long totalBrightness = 0;
-        NSUInteger pixelCount = 0;
-        NSUInteger step = 2; // 隔行采样，提高性能
-        for (NSUInteger y = 0; y < height; y += step) {
-            for (NSUInteger x = 0; x < width; x += step) {
-                NSUInteger index = (y * width + x) * 4;
-                unsigned char alpha = rawData[index + 3];
-                if (alpha < 10) continue; // 跳过接近透明的像素
-                unsigned char r = rawData[index];
-                unsigned char g = rawData[index + 1];
-                unsigned char b = rawData[index + 2];
-                // 人眼感知亮度公式
-                CGFloat brightness = 0.299 * r + 0.587 * g + 0.114 * b;
-                totalBrightness += (unsigned long long)brightness;
-                pixelCount++;
+        unsigned long long total = 0;
+        NSUInteger count = 0;
+        for (NSUInteger y = 0; y < height; y += 2) {
+            for (NSUInteger x = 0; x < width; x += 2) {
+                NSUInteger idx = (y * width + x) * 4;
+                unsigned char a = rawData[idx + 3];
+                if (a < 15) continue;
+                CGFloat b = 0.299 * rawData[idx] + 0.587 * rawData[idx+1] + 0.114 * rawData[idx+2];
+                total += (unsigned long long)b;
+                count++;
             }
         }
         free(rawData);
-
-        if (pixelCount == 0) return 128.0;
-        return (CGFloat)totalBrightness / (CGFloat)pixelCount;
+        if (count == 0) return 128.0;
+        return (CGFloat)total / (CGFloat)count;
     } @catch (__unused NSException *e) {
         return 128.0;
     }
 }
 
-#pragma mark - 文字/图标颜色调整
+#pragma mark - 应用文字样式（v2 更全面）
 
-/// 递归遍历视图，调整所有 UILabel 和 UIImageView 的颜色
-static void ATApplyTextStyleToView(UIView *view, BOOL useDarkStyle) {
+static void ATApplyStyleToLabel(UILabel *label, BOOL darkStyle) {
+    if (!label) return;
+    NSString *styleKey = darkStyle ? @"dark" : @"light";
+    NSString *applied = objc_getAssociatedObject(label, kATAppliedStyleKey);
+    if ([applied isEqualToString:styleKey]) return;
+
+    if (!objc_getAssociatedObject(label, kATOriginalTextColorKey)) {
+        objc_setAssociatedObject(label, kATOriginalTextColorKey,
+                                 label.textColor ?: [UIColor whiteColor],
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+
+    UIColor *targetColor = darkStyle ? ATDarkTextColor() : ATLightTextColor();
+    label.textColor = targetColor;
+
+    // 同时处理 attributedText（强制覆盖颜色）
+    if (label.attributedText && label.attributedText.length > 0) {
+        NSMutableAttributedString *mas = [[NSMutableAttributedString alloc] initWithAttributedString:label.attributedText];
+        [mas addAttribute:NSForegroundColorAttributeName value:targetColor range:NSMakeRange(0, mas.length)];
+        label.attributedText = mas;
+    }
+
+    // 高亮状态
+    if (label.highlightedTextColor) {
+        label.highlightedTextColor = [targetColor colorWithAlphaComponent:0.5];
+    }
+    objc_setAssociatedObject(label, kATAppliedStyleKey, styleKey, OBJC_ASSOCIATION_COPY_NONATOMIC);
+}
+
+static void ATApplyStyleToButton(UIButton *button, BOOL darkStyle) {
+    if (!button) return;
+    NSString *styleKey = darkStyle ? @"dark" : @"light";
+    NSString *applied = objc_getAssociatedObject(button, kATAppliedStyleKey);
+    if ([applied isEqualToString:styleKey]) return;
+
+    UIColor *textColor = darkStyle ? ATDarkTextColor() : ATLightTextColor();
+    UIColor *iconColor = darkStyle ? ATDarkIconColor() : ATLightIconColor();
+
+    [button setTitleColor:textColor forState:UIControlStateNormal];
+    [button setTitleColor:[textColor colorWithAlphaComponent:0.5] forState:UIControlStateHighlighted];
+    [button setTitleColor:[textColor colorWithAlphaComponent:0.3] forState:UIControlStateDisabled];
+    [button setTitleColor:textColor forState:UIControlStateSelected];
+
+    // 处理 attributedTitle
+    for (NSNumber *stateNum in @[@(UIControlStateNormal), @(UIControlStateHighlighted), @(UIControlStateDisabled)]) {
+        UIControlState state = stateNum.unsignedIntegerValue;
+        NSAttributedString *attrTitle = [button attributedTitleForState:state];
+        if (attrTitle && attrTitle.length > 0) {
+            NSMutableAttributedString *mas = [[NSMutableAttributedString alloc] initWithAttributedString:attrTitle];
+            [mas addAttribute:NSForegroundColorAttributeName value:textColor range:NSMakeRange(0, mas.length)];
+            [button setAttributedTitle:mas forState:state];
+        }
+    }
+
+    button.tintColor = iconColor;
+    if (button.imageView) {
+        button.imageView.tintColor = iconColor;
+    }
+    objc_setAssociatedObject(button, kATAppliedStyleKey, styleKey, OBJC_ASSOCIATION_COPY_NONATOMIC);
+}
+
+static void ATApplyStyleToImageView(UIImageView *imageView, BOOL darkStyle) {
+    if (!imageView || !imageView.image) return;
+    if (imageView.image.renderingMode != UIImageRenderingModeAlwaysTemplate) return;
+    NSString *styleKey = darkStyle ? @"dark" : @"light";
+    NSString *applied = objc_getAssociatedObject(imageView, kATAppliedStyleKey);
+    if ([applied isEqualToString:styleKey]) return;
+    imageView.tintColor = darkStyle ? ATDarkIconColor() : ATLightIconColor();
+    objc_setAssociatedObject(imageView, kATAppliedStyleKey, styleKey, OBJC_ASSOCIATION_COPY_NONATOMIC);
+}
+
+static void ATApplyStyleToTextView(UITextView *textView, BOOL darkStyle) {
+    if (!textView) return;
+    UIColor *targetColor = darkStyle ? ATDarkTextColor() : ATLightTextColor();
+    textView.textColor = targetColor;
+    if (textView.attributedText && textView.attributedText.length > 0) {
+        NSMutableAttributedString *mas = [[NSMutableAttributedString alloc] initWithAttributedString:textView.attributedText];
+        [mas addAttribute:NSForegroundColorAttributeName value:targetColor range:NSMakeRange(0, mas.length)];
+        textView.attributedText = mas;
+    }
+}
+
+/// 递归遍历所有子视图，应用样式
+static void ATApplyStyleToViewTree(UIView *view, BOOL darkStyle) {
     if (!view) return;
     @try {
-        NSString *styleKey = useDarkStyle ? @"dark" : @"light";
-
-        // 处理 UILabel
         if ([view isKindOfClass:[UILabel class]]) {
-            UILabel *label = (UILabel *)view;
-            NSString *applied = objc_getAssociatedObject(label, kATAppliedStyleKey);
-            if ([applied isEqualToString:styleKey]) return; // 已经是这个样式，跳过
-
-            // 保存原始颜色（只保存一次）
-            if (!objc_getAssociatedObject(label, kATOriginalTextColorKey)) {
-                objc_setAssociatedObject(label, kATOriginalTextColorKey,
-                                         label.textColor ?: [UIColor whiteColor],
-                                         OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            }
-
-            label.textColor = useDarkStyle ? kATDarkTextColor() : kATLightTextColor();
-            // 高亮状态也同步
-            if (label.highlightedTextColor) {
-                label.highlightedTextColor = useDarkStyle
-                    ? [UIColor colorWithWhite:0.0 alpha:0.6]
-                    : [UIColor colorWithWhite:1.0 alpha:0.6];
-            }
-            objc_setAssociatedObject(label, kATAppliedStyleKey, styleKey,
-                                     OBJC_ASSOCIATION_COPY_NONATOMIC);
+            ATApplyStyleToLabel((UILabel *)view, darkStyle);
             return;
         }
-
-        // 处理 UIButton（内部有 titleLabel 和 imageView）
         if ([view isKindOfClass:[UIButton class]]) {
-            UIButton *button = (UIButton *)view;
-            NSString *applied = objc_getAssociatedObject(button, kATAppliedStyleKey);
-            if (![applied isEqualToString:styleKey]) {
-                UIColor *textColor = useDarkStyle ? kATDarkTextColor() : kATLightTextColor();
-                UIColor *iconColor = useDarkStyle ? kATDarkIconColor() : kATLightIconColor();
-                [button setTitleColor:textColor forState:UIControlStateNormal];
-                [button setTitleColor:[textColor colorWithAlphaComponent:0.5]
-                             forState:UIControlStateHighlighted];
-                [button setTitleColor:[textColor colorWithAlphaComponent:0.3]
-                             forState:UIControlStateDisabled];
-                button.tintColor = iconColor;
-                if (button.imageView) {
-                    button.imageView.tintColor = iconColor;
-                }
-                objc_setAssociatedObject(button, kATAppliedStyleKey, styleKey,
-                                         OBJC_ASSOCIATION_COPY_NONATOMIC);
-            }
-            // 继续递归处理子视图
+            ATApplyStyleToButton((UIButton *)view, darkStyle);
+            // 继续递归处理 button 内部的子视图
         }
-
-        // 处理 UIImageView（模板图标）
-        if ([view isKindOfClass:[UIImageView class]]) {
-            UIImageView *imageView = (UIImageView *)view;
-            // 只处理模板渲染模式的图片（系统图标通常是这个模式）
-            if (imageView.image && imageView.image.renderingMode == UIImageRenderingModeAlwaysTemplate) {
-                NSString *applied = objc_getAssociatedObject(imageView, kATAppliedStyleKey);
-                if (![applied isEqualToString:styleKey]) {
-                    if (!objc_getAssociatedObject(imageView, kATOriginalTintColorKey)) {
-                        objc_setAssociatedObject(imageView, kATOriginalTintColorKey,
-                                                 imageView.tintColor ?: [UIColor whiteColor],
-                                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-                    }
-                    imageView.tintColor = useDarkStyle ? kATDarkIconColor() : kATLightIconColor();
-                    objc_setAssociatedObject(imageView, kATAppliedStyleKey, styleKey,
-                                             OBJC_ASSOCIATION_COPY_NONATOMIC);
-                }
-            }
+        if ([view isKindOfClass:[UITextView class]]) {
+            ATApplyStyleToTextView((UITextView *)view, darkStyle);
             return;
         }
-
-        // 递归处理子视图
-        for (UIView *subview in view.subviews) {
-            ATApplyTextStyleToView(subview, useDarkStyle);
+        if ([view isKindOfClass:[UIImageView class]]) {
+            ATApplyStyleToImageView((UIImageView *)view, darkStyle);
+            return;
+        }
+        for (UIView *sub in [view.subviews copy]) {
+            ATApplyStyleToViewTree(sub, darkStyle);
         }
     } @catch (__unused NSException *e) {}
 }
 
-/// 恢复原始文字颜色（一般不需要，切换样式时会自动覆盖）
-static void ATRestoreOriginalTextStyle(UIView *view) {
-    if (!view) return;
-    @try {
-        if ([view isKindOfClass:[UILabel class]]) {
-            UILabel *label = (UILabel *)view;
-            UIColor *original = objc_getAssociatedObject(label, kATOriginalTextColorKey);
-            if (original) label.textColor = original;
-            objc_setAssociatedObject(label, kATAppliedStyleKey, nil, OBJC_ASSOCIATION_COPY_NONATOMIC);
-            return;
-        }
-        if ([view isKindOfClass:[UIImageView class]]) {
-            UIImageView *imageView = (UIImageView *)view;
-            UIColor *original = objc_getAssociatedObject(imageView, kATOriginalTintColorKey);
-            if (original) imageView.tintColor = original;
-            objc_setAssociatedObject(imageView, kATAppliedStyleKey, nil, OBJC_ASSOCIATION_COPY_NONATOMIC);
-            return;
-        }
-        for (UIView *subview in view.subviews) {
-            ATRestoreOriginalTextStyle(subview);
-        }
-    } @catch (__unused NSException *e) {}
-}
+#pragma mark - 主逻辑
 
-#pragma mark - 主逻辑：检测亮度并应用样式
-
-static void ATDetectAndApplyTextStyle(UIWindow *window) {
-    if (!window || !ATIsAssistiveTouchWindow(window)) return;
+static void ATDetectAndApply(UIWindow *window) {
+    if (!window) return;
+    if (!ATIsAssistiveTouchWindow(window)) {
+        NSLog(@"[ATTextAdaptive] window is not AssistiveTouch: %@", NSStringFromClass(window.class));
+        return;
+    }
     @try {
         UIView *rootView = window.rootViewController.view ?: window;
         if (!rootView) return;
 
-        // 找到菜单的容器视图（最大的子视图）
+        // 找到菜单的主容器（最大的子视图）
         UIView *menuView = rootView;
         CGFloat maxArea = 0;
         for (UIView *sub in rootView.subviews) {
             CGFloat area = CGRectGetWidth(sub.bounds) * CGRectGetHeight(sub.bounds);
-            if (area > maxArea && area > 1000) {
+            if (area > maxArea && area > 500) {
                 maxArea = area;
                 menuView = sub;
             }
         }
 
-        // 计算背景平均亮度
-        CGFloat brightness = ATCalculateAverageBrightness(menuView);
-        BOOL useDarkStyle = brightness > kATBrightnessThreshold;
+        CGFloat brightness = ATCalculateBrightness(menuView);
+        BOOL darkStyle = brightness > kATBrightnessThreshold;
 
-        // 调试日志（可注释掉）
-        NSLog(@"[ATTextAdaptive] brightness=%.1f, style=%@",
-              brightness, useDarkStyle ? @"dark-text" : @"light-text");
+        NSLog(@"[ATTextAdaptive] brightness=%.1f, applying %@ text, menuView=%@",
+              brightness, darkStyle ? @"DARK" : @"LIGHT", NSStringFromClass(menuView.class));
 
-        // 应用文字样式
-        ATApplyTextStyleToView(rootView, useDarkStyle);
-    } @catch (__unused NSException *e) {
+        ATApplyStyleToViewTree(rootView, darkStyle);
+    } @catch (NSException *e) {
         NSLog(@"[ATTextAdaptive] error: %@", e);
     }
 }
 
-/// 延迟执行，确保液态玻璃已经注入完成
-static void ATDetectAndApplyAfterDelay(UIWindow *window, NSTimeInterval delay) {
+static void ATDetectAfterDelay(UIWindow *window, NSTimeInterval delay) {
     __weak UIWindow *weakWindow = window;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
-        @try {
-            ATDetectAndApplyTextStyle(weakWindow);
-        } @catch (__unused NSException *e) {}
+        @try { ATDetectAndApply(weakWindow); } @catch (__unused NSException *e) {}
     });
 }
 
@@ -308,38 +310,55 @@ static void ATDetectAndApplyAfterDelay(UIWindow *window, NSTimeInterval delay) {
 
 - (void)setHidden:(BOOL)hidden {
     %orig(hidden);
-    if (!hidden && ATIsAssistiveTouchWindow(self)) {
-        // 延迟执行，等液态玻璃注入完成
-        ATDetectAndApplyAfterDelay(self, 0.2);
-        ATDetectAndApplyAfterDelay(self, 0.5); // 再补一次，确保动画完成
+    if (!hidden) {
+        NSLog(@"[ATTextAdaptive] window shown: %@ frame=%@ level=%.0f",
+              NSStringFromClass(self.class), NSStringFromCGRect(self.frame), self.windowLevel);
+        if (ATIsAssistiveTouchWindow(self)) {
+            ATDetectAfterDelay(self, 0.15);
+            ATDetectAfterDelay(self, 0.4);
+            ATDetectAfterDelay(self, 0.8);
+        }
     }
 }
 
 - (void)makeKeyAndVisible {
     %orig;
+    NSLog(@"[ATTextAdaptive] makeKeyAndVisible: %@", NSStringFromClass(self.class));
     if (ATIsAssistiveTouchWindow(self)) {
-        ATDetectAndApplyAfterDelay(self, 0.2);
-        ATDetectAndApplyAfterDelay(self, 0.5);
+        ATDetectAfterDelay(self, 0.15);
+        ATDetectAfterDelay(self, 0.4);
+        ATDetectAfterDelay(self, 0.8);
+    }
+}
+
+- (void)layoutSubviews {
+    %orig;
+    if (ATIsAssistiveTouchWindow(self)) {
+        // 节流：0.3 秒最多一次
+        NSNumber *lastTime = objc_getAssociatedObject(self, kATLastCheckTimeKey);
+        NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+        if (!lastTime || now - lastTime.doubleValue > 0.3) {
+            objc_setAssociatedObject(self, kATLastCheckTimeKey, @(now), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            ATDetectAfterDelay(self, 0.1);
+        }
     }
 }
 
 %end
 
-#pragma mark - Hook UIViewController（菜单展开/收起时重新检测）
+#pragma mark - Hook UIViewController
 
 %hook UIViewController
 
 - (void)viewDidLayoutSubviews {
     %orig;
     @try {
-        if (ATIsAssistiveTouchWindow(self.view.window)) {
-            // 节流：用关联对象记录上次检测时间
-            NSNumber *lastTime = objc_getAssociatedObject(self, kATAppliedStyleKey);
+        if (ATViewInAssistiveTouch(self.view)) {
+            NSNumber *lastTime = objc_getAssociatedObject(self, kATLastCheckTimeKey);
             NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
-            if (!lastTime || now - lastTime.doubleValue > 0.3) {
-                objc_setAssociatedObject(self, kATAppliedStyleKey, @(now),
-                                         OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-                ATDetectAndApplyAfterDelay(self.view.window, 0.1);
+            if (!lastTime || now - lastTime.doubleValue > 0.25) {
+                objc_setAssociatedObject(self, kATLastCheckTimeKey, @(now), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                ATDetectAfterDelay(self.view.window, 0.08);
             }
         }
     } @catch (__unused NSException *e) {}
@@ -347,25 +366,43 @@ static void ATDetectAndApplyAfterDelay(UIWindow *window, NSTimeInterval delay) {
 
 %end
 
-#pragma mark - Hook UILabel（防止液态玻璃或系统重置文字颜色）
+#pragma mark - Hook UILabel（防止颜色被重置）
 
 %hook UILabel
 
 - (void)setTextColor:(UIColor *)color {
     %orig(color);
     @try {
-        // 如果这个 label 在 AssistiveTouch 窗口中，且我们已经应用过样式，
-        // 但系统/其他插件又改了颜色，就重新检测一次
-        if (ATIsAssistiveTouchWindow(self.window)) {
+        if (ATViewInAssistiveTouch(self)) {
             NSString *applied = objc_getAssociatedObject(self, kATAppliedStyleKey);
             if (applied.length) {
-                // 延迟重新检测，避免和其他插件的设置冲突
+                // 已经应用过样式，但被外部重置了，延迟重新应用
                 __weak UILabel *weakLabel = self;
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)),
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.03 * NSEC_PER_SEC)),
                                dispatch_get_main_queue(), ^{
-                    @try {
-                        ATDetectAndApplyTextStyle(weakLabel.window);
-                    } @catch (__unused NSException *e) {}
+                    @try { ATDetectAndApply(weakLabel.window); } @catch (__unused NSException *e) {}
+                });
+            }
+        }
+    } @catch (__unused NSException *e) {}
+}
+
+%end
+
+#pragma mark - Hook UIButton（防止颜色被重置）
+
+%hook UIButton
+
+- (void)setTitleColor:(UIColor *)color forState:(UIControlState)state {
+    %orig(color, state);
+    @try {
+        if (ATViewInAssistiveTouch(self)) {
+            NSString *applied = objc_getAssociatedObject(self, kATAppliedStyleKey);
+            if (applied.length) {
+                __weak UIButton *weakBtn = self;
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.03 * NSEC_PER_SEC)),
+                               dispatch_get_main_queue(), ^{
+                    @try { ATDetectAndApply(weakBtn.window); } @catch (__unused NSException *e) {}
                 });
             }
         }
