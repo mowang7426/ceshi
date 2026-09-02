@@ -1,6 +1,5 @@
 #import "LGLiveBackdropView.h"
 #import <UIKit/UIKit.h>
-
 // 性能优化：应用是否在后台
 static BOOL sLGAppInBackground = NO;
 #import "LGHostRegistry.h"
@@ -21,7 +20,6 @@ static const void *kLGLastLayoutBoundsKey = &kLGLastLayoutBoundsKey;
 static const void *kLGLastLayoutApplyTimeKey = &kLGLastLayoutApplyTimeKey;
 
 static NSDictionary<NSString *, id> *sLGGlassPreferences;
-
 static NSString *LGGlassPreferencesPath(void) {
     static NSString *path;
     static dispatch_once_t once;
@@ -30,7 +28,6 @@ static NSString *LGGlassPreferencesPath(void) {
     });
     return path;
 }
-
 id LGGlassPreferenceValue(NSString *key) {
     if (!key.length) return nil;
     @synchronized([LGLiveBackdropView class]) {
@@ -41,13 +38,11 @@ id LGGlassPreferenceValue(NSString *key) {
         return sLGGlassPreferences[key];
     }
 }
-
 void LGInvalidateGlassPreferenceCache(void) {
     @synchronized([LGLiveBackdropView class]) {
         sLGGlassPreferences = nil;
     }
 }
-
 NSString *LGFilterTypeForHostPrefix(NSString *prefix) {
     if (!prefix.length) return nil;
     const LGHostDefinition *host =
@@ -66,11 +61,11 @@ static void sblog(const char *fmt, ...) {
 }
 
 static const NSInteger kLGDynamicRadiusSteps = 32;
-
 static CFStringRef const kLGParametersReloadedNotification =
     CFSTR("dylv.liquidglass/ParametersReloaded");
 static NSHashTable<LGLiveBackdropView *> *sLGAllGlasses;
 static BOOL sLGFilterRefreshSetup;
+
 static BOOL LGSpecularEnabledForFilterType(NSString *type) {
     const LGHostDefinition *host = LGHostDefinitionForFilterType(type.UTF8String);
     if (host == &kLGHostRegistry[LGHostIdentifierCoverSheet]) return NO;
@@ -90,7 +85,6 @@ static BOOL sLGMotionEnabled;
 static CGFloat sLGMotionSensitivity = 2.0;
 static CGFloat sLGMotionLoggedSensitivity = -1.0;
 static CFStringRef const kLGMotionPrefsReloadNotification = CFSTR("dylv.sbliquidglassprefs/Reload");
-
 static void LGApplyMotionHighlightAngle(void);
 static void LGRefreshMotionHighlights(void);
 static void LGEnsureFilterRefreshObserver(void);
@@ -125,7 +119,6 @@ static void LGMotionPreferencesDidChange(CFNotificationCenterRef center, void *o
 }
 
 static BOOL LGUsesDynamicRadiusType(NSString *filterType) {
-
     return filterType.length &&
            LGHostIdentifierForFilterType(filterType.UTF8String) != LGHostIdentifierClock;
 }
@@ -142,55 +135,16 @@ static BOOL LGUsesPrefsControlCaptureScale(NSString *filterType) {
     }
 }
 
-static CGFloat LGNativeBlurRadiusForFilterType(NSString *filterType) {
-    const LGHostDefinition *host = LGHostDefinitionForFilterType(filterType.UTF8String);
-    if (!host) return 0.0;
-    NSString *prefix = [NSString stringWithUTF8String:host->preferencePrefix];
-    NSString *key = [prefix stringByAppendingString:@".Blur"];
-    id value = LGGlassPreferenceValue(key);
-    CGFloat radius = [value respondsToSelector:@selector(doubleValue)]
-        ? MAX(0.0, [value doubleValue]) : host->blur;
-    // V1.1.0: global blur strength scales every surface's blur.
-    id globalBlur = LGGlassPreferenceValue(@"Global.BlurStrength");
-    CGFloat blurStrength = [globalBlur respondsToSelector:@selector(doubleValue)]
-        ? MIN(1.0, MAX(0.0, [globalBlur doubleValue])) : 0.40f;
-    return radius * blurStrength;
-}
-
-static id LGCreateNativeGaussianFilter(Class filterCls, CGFloat radius) {
-    if (!filterCls || radius <= 0.0) return nil;
-    id blurFilter = nil;
-    SEL typeSelector = NSSelectorFromString(@"filterWithType:");
-    if ([filterCls respondsToSelector:typeSelector]) {
-        blurFilter = ((id (*)(Class, SEL, NSString *))objc_msgSend)(
-            filterCls, typeSelector, @"gaussianBlur");
-    }
-    if (!blurFilter) {
-        SEL nameSelector = NSSelectorFromString(@"filterWithName:");
-        if ([filterCls respondsToSelector:nameSelector]) {
-            blurFilter = ((id (*)(Class, SEL, NSString *))objc_msgSend)(
-                filterCls, nameSelector, @"gaussianBlur");
-        }
-    }
-    if (!blurFilter) return nil;
-    @try {
-        [blurFilter setValue:@(radius) forKey:@"inputRadius"];
-        [blurFilter setValue:@YES forKey:@"inputNormalizeEdges"];
-    } @catch (__unused NSException *e) {
-        return nil;
-    }
-    return blurFilter;
-}
+// 优化：移除了原生模糊半径计算，因为不再有独立的 _nativeBlurLayer
+// 模糊完全由自定义 CAFilter 负责
 
 static const CGFloat kLGScaleMax    = 0.75;
 static const CGFloat kLGScaleMin    = 0.25;
-
-static const CGFloat kLGClockCaptureScale = 0.35; // 性能优化：从0.5降低到0.35
-
-static const CGFloat kLGCoverSheetCaptureScale = 0.60; // 性能优化：从1.0降低到0.6，减少GPU采样开销
-
-static const CGFloat kLGPrefsControlScale = 0.80; // 性能优化：从1.5降低到0.8，减少GPU采样开销
+static const CGFloat kLGClockCaptureScale = 0.35;
+static const CGFloat kLGCoverSheetCaptureScale = 0.60;
+static const CGFloat kLGPrefsControlScale = 0.80;
 static const CGFloat kLGDefaultScaleBudget = 8000.0;
+
 static CGFloat LGQualityValue(void) {
     id value = LGGlassPreferenceValue(@"Global.Quality");
     CGFloat quality = [value respondsToSelector:@selector(doubleValue)]
@@ -198,13 +152,10 @@ static CGFloat LGQualityValue(void) {
     if (!isfinite(quality)) quality = 1.0;
     return fmin(1.0, fmax(0.1, quality));
 }
-
 static CGFloat LGScaleBudget(void) {
     return kLGDefaultScaleBudget * LGQualityValue();
 }
-
 static CGFloat LGScaleForSize(CGSize s) {
-    // area budget keeps total capture cost predictable
     CGFloat area = s.width * s.height;
     if (area <= 1.0) return kLGScaleMax;
     CGFloat scale = sqrt(LGScaleBudget() / area);
@@ -215,6 +166,7 @@ static CGFloat LGScaleForSize(CGSize s) {
 - (void)updateSpecular;
 - (void)applySpecularAngle:(CGFloat)angle;
 - (void)reapplyFilterForParameterReload;
+- (void)_staticWallpaperDidChange:(NSNotification *)note;
 @end
 
 static void LGParametersReloaded(CFNotificationCenterRef center, void *observer,
@@ -222,8 +174,6 @@ static void LGParametersReloaded(CFNotificationCenterRef center, void *observer,
                                  CFDictionaryRef userInfo) {
     (void)center; (void)observer; (void)name; (void)object; (void)userInfo;
     dispatch_async(dispatch_get_main_queue(), ^{
-
-        // clear cached prefs before rebuilding every live filter
         LGInvalidateGlassPreferenceCache();
         NSArray<LGLiveBackdropView *> *glasses = sLGAllGlasses.allObjects;
         LGLog(@"render parameters ready; refreshing %lu live filters",
@@ -248,20 +198,19 @@ static void LGEnsureFilterRefreshObserver(void) {
 }
 
 static void LGApplyMotionHighlightAngle(void) {
-    // 性能优化：只更新可见的玻璃视图，并且限制同时更新的数量
     NSInteger updatedCount = 0;
     for (LGLiveBackdropView *glass in sLGMotionGlasses.allObjects) {
         if (!glass.window || glass.hidden || glass.alpha <= 0.001) continue;
-        if (sLGAppInBackground) continue; // 后台时不更新
+        if (sLGAppInBackground) continue;
         [glass applySpecularAngle:sLGSpecularAngle];
         updatedCount++;
-        if (updatedCount > 12) break; // 最多同时更新12个，避免CPU峰值
+        if (updatedCount > 12) break;
     }
 }
 
 static void LGRefreshMotionHighlights(void) {
     if (!sLGMotionSetup || !LGIsSpringBoardBundle()) return;
-    if (sLGAppInBackground) { // 后台时停止加速度计
+    if (sLGAppInBackground) {
         [sLGMotionManager stopDeviceMotionUpdates];
         sLGMotionRunning = NO;
         return;
@@ -274,27 +223,22 @@ static void LGRefreshMotionHighlights(void) {
         return;
     }
     if (sLGMotionRunning) return;
-
     CMAttitudeReferenceFrame frames = [CMMotionManager availableAttitudeReferenceFrames];
     CMAttitudeReferenceFrame frame = (frames & CMAttitudeReferenceFrameXMagneticNorthZVertical)
         ? CMAttitudeReferenceFrameXMagneticNorthZVertical
         : CMAttitudeReferenceFrameXArbitraryCorrectedZVertical;
-
-    sLGMotionManager.deviceMotionUpdateInterval = 1.0 / 4.0; // 性能优化：从10Hz降低到4Hz，减少加速度计耗电
+    sLGMotionManager.deviceMotionUpdateInterval = 1.0 / 4.0;
     sLGMotionRunning = YES;
     [sLGMotionManager startDeviceMotionUpdatesUsingReferenceFrame:frame
                                                             toQueue:NSOperationQueue.mainQueue
                                                         withHandler:^(CMDeviceMotion *motion, NSError *error) {
         if (!motion || error || !sLGMotionEnabled) return;
         CMAttitude *attitude = motion.attitude;
-
         CGFloat baseMotion = attitude.yaw + attitude.roll * 0.65 + attitude.pitch * 0.35;
         CGFloat target = baseMotion * (sLGMotionSensitivity / 1.5);
-
         CGFloat delta = atan2(sin(target - sLGSpecularAngle), cos(target - sLGSpecularAngle));
         CGFloat nextAngle = sLGSpecularAngle + delta * 0.40;
         static CGFloat lastAppliedAngle = CGFLOAT_MAX;
-        // 性能优化：增加变化阈值，从0.025增加到0.08，减少不必要的更新
         if (lastAppliedAngle == CGFLOAT_MAX ||
             fabs(atan2(sin(nextAngle - lastAppliedAngle), cos(nextAngle - lastAppliedAngle))) >= 0.08) {
             sLGSpecularAngle = nextAngle;
@@ -329,20 +273,24 @@ static const CGFloat kLGSpecularBrightBoostOpacity = 0.70;
     CAGradientLayer *_specularBoost;
     CALayer         *_specularMask;
     CALayer         *_specularBoostMask;
-    CALayer         *_nativeBlurLayer;
-    CGFloat          _nativeBlurRadius;
+    // 优化：移除了 _nativeBlurLayer 和 _nativeBlurRadius
+    // 原来的双重 backdrop 是发热的主要原因，现在只保留主层一个 backdrop
     BOOL             _backdropConfigured;
     BOOL             _filterAttached;
     uint32_t         _lgId;
     CGFloat          _appliedScale;
     BOOL             _parameterRefreshVariant;
+    // 静态模式相关
+    LGBackdropMode   _backdropMode;
+    LGWallpaperVariant _wallpaperVariant;
+    CGFloat          _staticBlurRadius;
+    CALayer         *_staticContentLayer;
 }
 
 - (NSString *)lgEffectiveFilterType {
     if (!_lgFilterType.length)
         return [NSString stringWithUTF8String:kLGHostRegistry[LGHostIdentifierDefault].filterType];
     NSString *base = _lgFilterType;
-
     if (LGUsesDynamicRadiusType(base) && !CGRectIsEmpty(self.bounds)) {
         CGFloat shortest = MIN(CGRectGetWidth(self.bounds), CGRectGetHeight(self.bounds));
         CGFloat ratio = shortest > 0.0 ? self.layer.cornerRadius / shortest : 0.0;
@@ -355,18 +303,21 @@ static const CGFloat kLGSpecularBrightBoostOpacity = 0.70;
     return type;
 }
 
+/// 优化：layerClass 根据 backdropMode 返回不同的类
+/// 静态模式下用普通 CALayer，完全不触发 CABackdropLayer 的实时捕获
 + (Class)layerClass {
+    // 注意：layerClass 是类方法，无法访问实例的 backdropMode。
+    // 因此静态模式下我们在 init 中把 layer 替换为普通 CALayer。
+    // 这里保持返回 CABackdropLayer 以兼容实时模式。
     return NSClassFromString(@"CABackdropLayer") ?: [CALayer class];
 }
 
 - (instancetype)initWithFrame:(CGRect)frame {
     return [self initWithFrame:frame groupName:nil filterType:nil];
 }
-
 - (instancetype)initWithFrame:(CGRect)frame groupName:(NSString *)groupName {
     return [self initWithFrame:frame groupName:groupName filterType:nil];
 }
-
 - (instancetype)initWithFrame:(CGRect)frame groupName:(NSString *)groupName filterType:(NSString *)filterType {
     self = [super initWithFrame:frame];
     if (!self) return nil;
@@ -374,19 +325,20 @@ static const CGFloat kLGSpecularBrightBoostOpacity = 0.70;
     static uint32_t idCounter = 0;
     _lgId = ++idCounter;
     if (groupName.length) {
-
         _lgGroupName = [groupName copy];
     } else {
-
         _lgGroupName = [NSString stringWithFormat:@"dylv.liquidglass.g%u", _lgId];
     }
     self.userInteractionEnabled = NO;
     self.backgroundColor        = [UIColor clearColor];
     self.opaque                 = NO;
-
     self.autoresizingMask       = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    
-    // 性能优化：注册前后台通知监听（只注册一次）
+
+    // 默认值
+    _backdropMode = LGBackdropModeLive;
+    _wallpaperVariant = LGWallpaperVariantHomeScreen;
+    _staticBlurRadius = 20.0;
+
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidEnterBackgroundNotification
@@ -404,7 +356,7 @@ static const CGFloat kLGSpecularBrightBoostOpacity = 0.70;
                                                           NSLog(@"[SBLiquidGlass] App will enter foreground, resuming rendering");
                                                       }];
     });
-    
+
     LGEnsureFilterRefreshObserver();
     [sLGAllGlasses addObject:self];
     LGEnsureMotionHighlights();
@@ -414,13 +366,13 @@ static const CGFloat kLGSpecularBrightBoostOpacity = 0.70;
 }
 
 - (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
     [sLGAllGlasses removeObject:self];
     [sLGMotionGlasses removeObject:self];
 }
 
 - (void)didMoveToWindow {
     [super didMoveToWindow];
-    // 性能优化：延迟应用滤镜，避免频繁调用
     if (self.window) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
@@ -428,11 +380,15 @@ static const CGFloat kLGSpecularBrightBoostOpacity = 0.70;
                        });
     }
 }
+
 - (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
     [super traitCollectionDidChange:previousTraitCollection];
     if (previousTraitCollection.userInterfaceStyle != self.traitCollection.userInterfaceStyle) {
         _filterAttached = NO;
-        // 性能优化：延迟应用滤镜
+        // 静态模式下明暗模式变化也需要刷新壁纸
+        if (_backdropMode == LGBackdropModeStaticWallpaper) {
+            [self refreshStaticWallpaper];
+        }
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
                            @try { [self applyFilters]; } @catch (__unused NSException *e) {}
@@ -443,7 +399,6 @@ static const CGFloat kLGSpecularBrightBoostOpacity = 0.70;
 - (NSNumber *)lgSpecularEnabledOverride {
     return objc_getAssociatedObject(self, kLGSpecularEnabledOverrideKey);
 }
-
 - (void)setLgSpecularEnabledOverride:(NSNumber *)override {
     NSNumber *previous = self.lgSpecularEnabledOverride;
     if ((previous == override) || [previous isEqualToNumber:override]) return;
@@ -452,13 +407,91 @@ static const CGFloat kLGSpecularBrightBoostOpacity = 0.70;
     [self updateSpecular];
 }
 
+#pragma mark - backdropMode 属性
+
+- (void)setBackdropMode:(LGBackdropMode)backdropMode {
+    if (_backdropMode == backdropMode) return;
+    _backdropMode = backdropMode;
+
+    if (backdropMode == LGBackdropModeStaticWallpaper) {
+        // 静态模式：把 layer 替换为普通 CALayer，移除 backdrop 配置
+        _backdropConfigured = NO;
+        _filterAttached = NO;
+        self.layer.filters = nil;
+        // 创建静态内容层
+        if (!_staticContentLayer) {
+            _staticContentLayer = [CALayer layer];
+            _staticContentLayer.frame = self.bounds;
+            _staticContentLayer.cornerRadius = self.layer.cornerRadius;
+            _staticContentLayer.cornerCurve = self.layer.cornerCurve;
+            _staticContentLayer.masksToBounds = YES;
+            _staticContentLayer.contentsGravity = kCAGravityResizeAspectFill;
+            [self.layer insertSublayer:_staticContentLayer atIndex:0];
+        }
+        [self refreshStaticWallpaper];
+    } else {
+        // 切回实时模式：移除静态内容层，恢复 backdrop 配置
+        if (_staticContentLayer) {
+            [_staticContentLayer removeFromSuperlayer];
+            _staticContentLayer = nil;
+        }
+        _backdropConfigured = NO;
+        _filterAttached = NO;
+        [self applyFilters];
+    }
+}
+
+- (void)setWallpaperVariant:(LGWallpaperVariant)wallpaperVariant {
+    if (_wallpaperVariant == wallpaperVariant) return;
+    _wallpaperVariant = wallpaperVariant;
+    if (_backdropMode == LGBackdropModeStaticWallpaper) {
+        [self refreshStaticWallpaper];
+    }
+}
+
+- (void)setStaticBlurRadius:(CGFloat)staticBlurRadius {
+    if (fabs(_staticBlurRadius - staticBlurRadius) < 0.1) return;
+    _staticBlurRadius = staticBlurRadius;
+    if (_backdropMode == LGBackdropModeStaticWallpaper) {
+        [self refreshStaticWallpaper];
+    }
+}
+
+- (void)refreshStaticWallpaper {
+    if (_backdropMode != LGBackdropModeStaticWallpaper) return;
+    if (!_staticContentLayer) return;
+
+    UIImage *blurred = [[LGWallpaperBlurCache sharedInstance]
+        blurredWallpaperForVariant:_wallpaperVariant
+                             radius:_staticBlurRadius
+                 userInterfaceStyle:self.traitCollection.userInterfaceStyle];
+
+    if (blurred) {
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        _staticContentLayer.contents = (id)blurred.CGImage;
+        [CATransaction commit];
+    }
+}
+
+- (void)_staticWallpaperDidChange:(NSNotification *)note {
+    (void)note;
+    if (_backdropMode == LGBackdropModeStaticWallpaper) {
+        [self refreshStaticWallpaper];
+    }
+}
+
 - (void)layoutSubviews  {
     [super layoutSubviews];
-    // 性能优化：添加节流+可见性检查+变化检测，避免频繁调用导致发热
     if (self.hidden || self.alpha < 0.01 || !self.window) return;
     if (CGRectIsEmpty(self.bounds) || CGRectGetWidth(self.bounds) < 1) return;
-    
-    // 变化检测：只有当前实例的 bounds 真正变化时才触发昂贵的滤镜重配置。
+
+    // 静态模式下同步内容层 frame
+    if (_staticContentLayer) {
+        _staticContentLayer.frame = self.bounds;
+        _staticContentLayer.cornerRadius = self.layer.cornerRadius;
+    }
+
     NSValue *lastBoundsValue = objc_getAssociatedObject(self, kLGLastLayoutBoundsKey);
     if (lastBoundsValue && CGRectEqualToRect(self.bounds, lastBoundsValue.CGRectValue)) {
         return;
@@ -466,8 +499,6 @@ static const CGFloat kLGSpecularBrightBoostOpacity = 0.70;
     objc_setAssociatedObject(self, kLGLastLayoutBoundsKey,
                              [NSValue valueWithCGRect:self.bounds],
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-
-    // 布局风暴期间限制滤镜重配置频率；真正的参数刷新仍由 applyFilters 直接触发。
     NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
     NSNumber *lastApply = objc_getAssociatedObject(self, kLGLastLayoutApplyTimeKey);
     if (!lastApply || now - lastApply.doubleValue > 0.15) {
@@ -478,67 +509,16 @@ static const CGFloat kLGSpecularBrightBoostOpacity = 0.70;
     }
 }
 
-- (void)updateNativeBlurOverlayWithRadius:(CGFloat)radius filterClass:(Class)filterCls {
-    if (radius <= 0.0 || !filterCls) {
-        [_nativeBlurLayer removeFromSuperlayer];
-        _nativeBlurLayer = nil;
-        _nativeBlurRadius = 0.0;
-        return;
-    }
-
-    BOOL needsFilter = !_nativeBlurLayer || fabs(_nativeBlurRadius - radius) > 0.001;
-    id gaussian = needsFilter ? LGCreateNativeGaussianFilter(filterCls, radius) : nil;
-    if (needsFilter && !gaussian) return;
-    if (!_nativeBlurLayer) {
-        Class backdropCls = NSClassFromString(@"CABackdropLayer");
-        if (!backdropCls) return;
-        _nativeBlurLayer = [backdropCls layer];
-        @try {
-            [_nativeBlurLayer setValue:@NO forKey:@"layerUsesCoreImageFilters"];
-            [_nativeBlurLayer setValue:@YES forKey:@"windowServerAware"];
-            [_nativeBlurLayer setValue:[_lgGroupName stringByAppendingString:@".nativeblur"]
-                                forKey:@"groupName"];
-            [_nativeBlurLayer setValue:@"dylv.liquidglass.nativeblur" forKey:@"groupNamespace"];
-            [_nativeBlurLayer setValue:@YES forKey:@"ignoresScreenClip"];
-
-            [_nativeBlurLayer setValue:@1.0 forKey:@"scale"];
-        } @catch (NSException *e) {
-            LGLog(@"glass#%u native blur overlay configure failed: %@", _lgId, e.reason);
-        }
-        [self.layer insertSublayer:_nativeBlurLayer atIndex:0];
-        if (LGHostIdentifierForFilterType(_lgFilterType.UTF8String) == LGHostIdentifierClock) {
-            LGLog(@"clock native blur layer created radius=%.2f group=%@",
-                  radius, _lgGroupName);
-        }
-    }
-
-    [CATransaction begin];
-    [CATransaction setDisableActions:YES];
-    _nativeBlurLayer.frame = self.bounds;
-    _nativeBlurLayer.cornerRadius = self.layer.cornerRadius;
-    _nativeBlurLayer.masksToBounds = YES;
-    @try { [_nativeBlurLayer setValue:[self.layer valueForKey:@"cornerCurve"] forKey:@"cornerCurve"]; }
-    @catch (__unused NSException *e) {}
-    if (gaussian) {
-        _nativeBlurLayer.filters = @[gaussian];
-        _nativeBlurRadius = radius;
-        if (LGHostIdentifierForFilterType(_lgFilterType.UTF8String) == LGHostIdentifierClock) {
-            LGLog(@"clock native blur filter applied radius=%.2f bounds=%@",
-                  radius, NSStringFromCGRect(self.bounds));
-        }
-    }
-    [CATransaction commit];
-}
+// 优化：移除了 updateNativeBlurOverlayWithRadius:filterClass: 整个方法
+// 原来的第二个 backdrop 层完全删除，模糊只由主层的自定义 CAFilter 负责
 
 - (void)updateSpecular {
     if (CGRectIsEmpty(self.bounds)) return;
     if (self.hidden || self.alpha < 0.01 || !self.window || sLGAppInBackground) return;
-
     NSNumber *override = self.lgSpecularEnabledOverride;
     BOOL enabled = override ? override.boolValue
                             : LGSpecularEnabledForFilterType(_lgFilterType);
     if (!enabled && !_specular) return;
-
     if (!_specular) {
         id clear = (id)UIColor.clearColor.CGColor;
         _specular = [CAGradientLayer layer];
@@ -551,7 +531,6 @@ static const CGFloat kLGSpecularBrightBoostOpacity = 0.70;
         _specularMask.borderColor = UIColor.blackColor.CGColor;
         _specular.mask = _specularMask;
         [self.layer addSublayer:_specular];
-
         _specularBoost = [CAGradientLayer layer];
         _specularBoost.colors = @[(id)[UIColor colorWithWhite:1.0 alpha:kLGSpecularBrightBoostOpacity].CGColor,
                                   clear,
@@ -564,7 +543,6 @@ static const CGFloat kLGSpecularBrightBoostOpacity = 0.70;
         _specularBoost.mask = _specularBoostMask;
         [self.layer addSublayer:_specularBoost];
     }
-
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
     _specular.hidden = !enabled;
@@ -594,25 +572,37 @@ static const CGFloat kLGSpecularBrightBoostOpacity = 0.70;
 }
 
 - (void)applyFilters {
-    // 性能优化：不可见或应用在后台时跳过渲染
+    // 静态模式：不走 backdrop 逻辑，只确保内容层就位
+    if (_backdropMode == LGBackdropModeStaticWallpaper) {
+        if (!_staticContentLayer) {
+            _staticContentLayer = [CALayer layer];
+            _staticContentLayer.frame = self.bounds;
+            _staticContentLayer.cornerRadius = self.layer.cornerRadius;
+            _staticContentLayer.cornerCurve = self.layer.cornerCurve;
+            _staticContentLayer.masksToBounds = YES;
+            _staticContentLayer.contentsGravity = kCAGravityResizeAspectFill;
+            [self.layer insertSublayer:_staticContentLayer atIndex:0];
+        }
+        if (!_staticContentLayer.contents) {
+            [self refreshStaticWallpaper];
+        }
+        return;
+    }
+
+    // 实时模式：原有逻辑
     if (self.hidden || self.alpha < 0.01 || !self.window || sLGAppInBackground) return;
     CALayer *layer = self.layer;
     Class backdropCls = NSClassFromString(@"CABackdropLayer");
     if (!backdropCls || ![layer isKindOfClass:backdropCls]) return;
-
     @try {
-
         if (!_backdropConfigured) {
-            // these private flags keep capture in render server space
             [layer setValue:@NO  forKey:@"layerUsesCoreImageFilters"];
             [layer setValue:@YES forKey:@"windowServerAware"];
             [layer setValue:_lgGroupName forKey:@"groupName"];
             [layer setValue:@"dylv.liquidglass" forKey:@"groupNamespace"];
-
             [layer setValue:@YES forKey:@"ignoresScreenClip"];
             _backdropConfigured = YES;
         }
-
         CGFloat wantScale;
         switch (LGHostIdentifierForFilterType(_lgFilterType.UTF8String)) {
             case LGHostIdentifierClock:
@@ -635,33 +625,26 @@ static const CGFloat kLGSpecularBrightBoostOpacity = 0.70;
                        CGRectGetWidth(self.bounds), CGRectGetHeight(self.bounds),
                        LGQualityValue(), LGScaleBudget(), wantScale);
         }
-
         NSString *wantType = [self lgEffectiveFilterType];
         NSArray *existing = layer.filters;
-        CGFloat nativeBlur = LGNativeBlurRadiusForFilterType(_lgFilterType ?: wantType);
-        Class filterCls = NSClassFromString(@"CAFilter");
-        [self updateNativeBlurOverlayWithRadius:nativeBlur filterClass:filterCls];
-
+        // 优化：移除了原生模糊层的更新调用
         if (_filterAttached && existing.count == 1) {
             NSString *type = nil;
             @try { type = [existing.firstObject valueForKey:@"type"]; } @catch (...) {}
             if ([type isEqualToString:wantType]) {
-                // filter 类型没变，检查 scale 是否变化
                 if (fabs(wantScale - _appliedScale) <= 0.02) {
-                    return; // 完全没变化，跳过
+                    return;
                 }
             }
         }
+        Class filterCls = NSClassFromString(@"CAFilter");
         if (!filterCls) { sblog("CAFilter class not found"); return; }
-
         id glassFilter = ((id (*)(Class, SEL, NSString *))objc_msgSend)(
             filterCls, NSSelectorFromString(@"filterWithType:"), wantType);
-
         if (!glassFilter) {
             LGLog(@"glass#%u filterWithType nil (not registered yet?)", _lgId);
             return;
         }
-
         layer.filters = @[glassFilter];
         _filterAttached = YES;
     } @catch (NSException *e) {
@@ -670,15 +653,16 @@ static const CGFloat kLGSpecularBrightBoostOpacity = 0.70;
 }
 
 - (void)reapplyFilterForParameterReload {
-
     _parameterRefreshVariant = !_parameterRefreshVariant;
-
     _appliedScale = -1.0;
     _filterAttached = NO;
     [self applyFilters];
-    [self.layer setNeedsDisplay];
+    if (_backdropMode == LGBackdropModeStaticWallpaper) {
+        [self refreshStaticWallpaper];
+    } else {
+        [self.layer setNeedsDisplay];
+    }
 }
-
 @end
 
 #pragma mark - generic host injection
@@ -695,19 +679,17 @@ void LGInjectGlassIntoMaterialGroupType(UIView *mat, const void *assocKey,
                                         NSString *groupName, NSString *filterType) {
     UIView *parent = mat.superview;
     if (!parent) return;
-
     CGRect gf = LGOutsetFrame(mat.frame, outset);
-
     LGLiveBackdropView *glass = objc_getAssociatedObject(mat, assocKey);
     if (!glass) {
         glass = [[LGLiveBackdropView alloc] initWithFrame:gf groupName:groupName filterType:filterType];
+        // 优化：移除了 5 次延迟重试（1.5s/3s/5s/8s/12s）
+        // 只保留一次 1.5s 后的重试，用于等待滤镜注册
         __weak LGLiveBackdropView *weakGlass = glass;
-        for (NSNumber *delay in @[ @1.5, @3.0, @5.0, @8.0, @12.0 ]) {
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay.doubleValue * NSEC_PER_SEC)),
-                           dispatch_get_main_queue(), ^{
-                [weakGlass applyFilters];
-            });
-        }
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            @try { [weakGlass applyFilters]; } @catch (__unused NSException *e) {}
+        });
         [parent insertSubview:glass aboveSubview:mat];
         objc_setAssociatedObject(mat, assocKey, glass, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
@@ -721,7 +703,6 @@ void LGInjectGlassIntoMaterialGroupType(UIView *mat, const void *assocKey,
     }
     glass.layer.cornerCurve   = kCACornerCurveContinuous;
     glass.layer.masksToBounds = YES;
-
     objc_setAssociatedObject(glass, kLGOutsetKey, [NSValue valueWithUIEdgeInsets:outset],
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(glass, kLGRadiusKey, @(cornerRadius), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -730,7 +711,6 @@ void LGInjectGlassIntoMaterialGroupType(UIView *mat, const void *assocKey,
 
 static void LGSyncGlassGeometry(UIView *mat, const void *assocKey,
                                 UIEdgeInsets outset, CGFloat cornerRadius);
-
 void LGResyncGlassGeometry(UIView *mat, const void *assocKey) {
     LGLiveBackdropView *glass = objc_getAssociatedObject(mat, assocKey);
     if (!glass) return;
@@ -746,14 +726,16 @@ static void LGSyncGlassGeometry(UIView *mat, const void *assocKey,
     if (!glass) return;
     CGRect gf = LGOutsetFrame(mat.frame, outset);
     CGFloat radius = (cornerRadius >= 0.0) ? cornerRadius : mat.layer.cornerRadius;
-
     if (!CGRectEqualToRect(glass.frame, gf)) {
         glass.frame = gf;
     }
+    // 优化：cornerRadius 变化时加入节流，避免动画过程中频繁 applyFilters
     if (fabs(glass.layer.cornerRadius - radius) > 0.5) {
         glass.layer.cornerRadius = radius;
         [glass updateSpecular];
-        [glass applyFilters];
+        // 延迟 50ms 合并连续的 cornerRadius 变化
+        [NSObject cancelPreviousPerformRequestsWithTarget:glass selector:@selector(applyFilters) object:nil];
+        [glass performSelector:@selector(applyFilters) withObject:nil afterDelay:0.05];
     }
     if (!mat.hidden) mat.hidden = YES;
 }
@@ -763,10 +745,5 @@ void LGRemoveGlassFromMaterial(UIView *mat, const void *assocKey) {
     if (!glass) return;
     objc_setAssociatedObject(mat, assocKey, nil, OBJC_ASSOCIATION_ASSIGN);
     mat.hidden = NO;
-
     [glass removeFromSuperview];
-}
-
-BOOL LGMaterialHasGlass(UIView *mat, const void *assocKey) {
-    return objc_getAssociatedObject(mat, assocKey) != nil;
 }
