@@ -682,6 +682,99 @@ NSArray<NSDictionary *> *LGClockItems(void) {
                             LGLocalized(@"prefs.lockscreen_clock.font_size.subtitle"),
                             1.0, 0.5, 2.0, 2),
             @"Clock.Enabled", @YES),
+
+        // ===== 文字颜色 =====
+        LGSectionSetting(@"文字颜色", @"自定义锁屏时间的文字颜色"),
+        LGSettingControlledByKey(@{
+            @"type": @"color",
+            @"key": @"Clock.TextColor",
+            @"title": @"文字颜色",
+            @"subtitle": @"设置锁屏时间的文字颜色（默认白色）",
+            @"default": [UIColor whiteColor]
+        }, @"Clock.Enabled", @YES),
+
+        // ===== 文字阴影 =====
+        LGSectionSetting(@"文字阴影", @"添加阴影让文字在任何背景下都能看清"),
+        LGSettingControlledByKey(
+            LGSwitchSetting(@"Clock.Shadow.Enabled",
+                            @"启用阴影",
+                            @"启用文字阴影效果", NO),
+            @"Clock.Enabled", @YES),
+        LGSettingControlledByKey(@{
+            @"type": @"color",
+            @"key": @"Clock.Shadow.Color",
+            @"title": @"阴影颜色",
+            @"subtitle": @"设置文字阴影的颜色（默认黑色）",
+            @"default": [UIColor blackColor]
+        }, @"Clock.Shadow.Enabled", @YES),
+        LGSettingControlledByKey(
+            LGSliderSetting(@"Clock.Shadow.OffsetX",
+                            @"阴影水平偏移",
+                            @"阴影的水平偏移量",
+                            0.0, -10.0, 10.0, 1),
+            @"Clock.Shadow.Enabled", @YES),
+        LGSettingControlledByKey(
+            LGSliderSetting(@"Clock.Shadow.OffsetY",
+                            @"阴影垂直偏移",
+                            @"阴影的垂直偏移量",
+                            2.0, -10.0, 10.0, 1),
+            @"Clock.Shadow.Enabled", @YES),
+        LGSettingControlledByKey(
+            LGSliderSetting(@"Clock.Shadow.Blur",
+                            @"阴影模糊半径",
+                            @"阴影的模糊程度",
+                            4.0, 0.0, 20.0, 1),
+            @"Clock.Shadow.Enabled", @YES),
+
+        // ===== 文字描边 =====
+        LGSectionSetting(@"文字描边", @"添加描边让文字在任何背景下都能看清"),
+        LGSettingControlledByKey(
+            LGSwitchSetting(@"Clock.Stroke.Enabled",
+                            @"启用描边",
+                            @"启用文字描边效果", NO),
+            @"Clock.Enabled", @YES),
+        LGSettingControlledByKey(@{
+            @"type": @"color",
+            @"key": @"Clock.Stroke.Color",
+            @"title": @"描边颜色",
+            @"subtitle": @"设置文字描边的颜色（默认黑色）",
+            @"default": [UIColor blackColor]
+        }, @"Clock.Stroke.Enabled", @YES),
+        LGSettingControlledByKey(
+            LGSliderSetting(@"Clock.Stroke.Width",
+                            @"描边宽度",
+                            @"文字描边的宽度",
+                            2.0, 0.0, 10.0, 1),
+            @"Clock.Stroke.Enabled", @YES),
+
+        // ===== 可变字体参数 =====
+        LGSectionSetting(@"可变字体参数", @"精细调整字体的粗细、宽度、高度和柔和度"),
+        LGSettingControlledByKey(
+            LGSliderSetting(@"Clock.VariableFont.Weight",
+                            @"字体粗细",
+                            @"字体的粗细程度（100-900）",
+                            750.0, 100.0, 900.0, 0),
+            @"Clock.Enabled", @YES),
+        LGSettingControlledByKey(
+            LGSliderSetting(@"Clock.VariableFont.Width",
+                            @"字体宽度",
+                            @"字体的宽度（50-200）",
+                            100.0, 50.0, 200.0, 0),
+            @"Clock.Enabled", @YES),
+        LGSettingControlledByKey(
+            LGSliderSetting(@"Clock.VariableFont.Height",
+                            @"字体高度",
+                            @"字体的高度（200-500）",
+                            350.0, 200.0, 500.0, 0),
+            @"Clock.Enabled", @YES),
+        LGSettingControlledByKey(
+            LGSliderSetting(@"Clock.VariableFont.Softness",
+                            @"字体柔和度",
+                            @"字体的柔和程度（0-100）",
+                            56.0, 0.0, 100.0, 0),
+            @"Clock.Enabled", @YES),
+
+        // ===== 磨砂和模糊 =====
         LGSettingControlledByKey(
             LGSwitchSetting(@"Clock.Frost.Enabled",
                             LGLocalized(@"prefs.lockscreen_clock.frost.title"),
