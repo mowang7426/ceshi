@@ -1769,6 +1769,7 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
 @property (nonatomic, strong) UIVisualEffectView *frostView; // 磨砂背景视图
 @property (nonatomic, strong) UILabel *maskLabel;
 @property (nonatomic, strong) CAGradientLayer *textGradientLayer; // 文字渐变层
+@property (nonatomic, weak) UIView *maskLabelOriginalSuperview; // 记录 maskLabel 的原始 superview
 @property (nonatomic, copy) NSString *displayText;
 @property (nonatomic, copy) NSAttributedString *displayAttributedText;
 @property (nonatomic, strong) UIFont *displayFont;
@@ -1901,6 +1902,14 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
 
     if (gradientEnabled && self.textGradientLayer) {
         // 渐变色时间：用渐变层 + mask 实现
+
+        // 关键修复：把 maskLabel 从视图层级中移除，只保留它的 layer 作为 mask
+        // 这样就只有一层渐变层，不会有"掉漆"的问题
+        if (mask.superview) {
+            self.maskLabelOriginalSuperview = mask.superview;
+            [mask removeFromSuperview];
+        }
+
         self.textGradientLayer.hidden = NO;
 
         // 设置渐变颜色（0=彩虹，1=海洋，2=日落）
@@ -1929,7 +1938,7 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
         }
         self.textGradientLayer.colors = colors;
 
-        // 设置 maskLabel 为白色，作为渐变层的 mask
+        // 设置 maskLabel 的文字（作为 mask 的内容）
         mask.textColor = UIColor.whiteColor;
         if (self.displayAttributedText.length > 0) {
             NSMutableAttributedString *m = [self.displayAttributedText mutableCopy];
@@ -1944,13 +1953,18 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
             mask.textAlignment = align;
         }
 
-        // 用 maskLabel 的 layer 作为渐变层的 mask
         // 关键：mask 的 frame 必须和渐变层一致，否则滚动时会变形
         self.textGradientLayer.frame = mask.bounds;
         self.textGradientLayer.mask = mask.layer;
 
     } else {
         // 普通颜色时间
+
+        // 把 maskLabel 添加回视图层级
+        if (!mask.superview && self.maskLabelOriginalSuperview) {
+            [self.maskLabelOriginalSuperview addSubview:mask];
+        }
+
         if (self.textGradientLayer) {
             self.textGradientLayer.hidden = YES;
             self.textGradientLayer.mask = nil;
