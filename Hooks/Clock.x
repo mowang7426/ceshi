@@ -479,6 +479,7 @@ static CGRect LGClockExpandedLegacyFrameForRect(CGRect frame,
 static CGFloat LGClockModernSyntheticEmbolden(void) {
     if (!LGIsAtLeastiOS16()) return 0.0;
     if (!LGClockVariableFontEnabled()) return 0.0;
+    if (![LGGlassPreferenceValue(@"Clock.SyntheticEmbolden.Enabled") boolValue]) return 0.0;
     CGFloat weight = LGClockVariableFontWeight();
     if (weight <= 400.0) return 0.0;
     return MIN(2.0, ((weight - 400.0) / 600.0) * 2.0);
@@ -1926,7 +1927,6 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
     NSTextAlignment align = self.displayAlignment;
     UIColor *textColor = LGClockTextColor();
 
-    // 构建阴影
     NSShadow *shadow = nil;
     if (LGClockShadowEnabled()) {
         shadow = [[NSShadow alloc] init];
@@ -1935,7 +1935,6 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
         shadow.shadowBlurRadius = LGClockShadowBlur();
     }
 
-    // 构建属性字符串（支持阴影和描边的模糊效果）
     NSMutableDictionary *attrs = [NSMutableDictionary dictionary];
     attrs[NSFontAttributeName] = font;
     attrs[NSForegroundColorAttributeName] = textColor;
@@ -1957,7 +1956,6 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
         }
         mask.attributedText = m;
     } else {
-        // 用属性字符串实现，支持阴影模糊效果
         NSAttributedString *attrStr = [[NSAttributedString alloc] initWithString:text attributes:attrs];
         mask.attributedText = attrStr;
         mask.textAlignment = align;
@@ -1968,7 +1966,6 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
 - (NSAttributedString *)lg_maskAttributedString {
     UIColor *textColor = LGClockTextColor();
 
-    // 构建阴影
     NSShadow *shadow = nil;
     if (LGClockShadowEnabled()) {
         shadow = [[NSShadow alloc] init];
@@ -1977,34 +1974,8 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
         shadow.shadowBlurRadius = LGClockShadowBlur();
     }
 
-    // 构建描边属性
     UIColor *strokeColor = LGClockStrokeEnabled() ? LGClockStrokeColor() : nil;
     CGFloat strokeWidth = LGClockStrokeEnabled() ? LGClockStrokeWidth() : 0.0;
-
-    if (LGClockVariableFontEnabled() && self.displayText.length > 0 &&
-        (self.displayCTFont || self.displayFont)) {
-        UIFont *font = self.displayFont ?: [UIFont systemFontOfSize:84.0 weight:UIFontWeightBold];
-        id ctFontObject = self.displayCTFont;
-        CTFontRef ctFont = NULL;
-        if (!ctFontObject) {
-            ctFont = CTFontCreateWithFontDescriptor((__bridge CTFontDescriptorRef)font.fontDescriptor,
-                                                    font.pointSize,
-                                                    NULL);
-            ctFontObject = (__bridge id)ctFont;
-        }
-        NSMutableDictionary *attrs = [NSMutableDictionary dictionaryWithDictionary:@{
-            (__bridge id)kCTFontAttributeName: ctFontObject ?: font,
-            (__bridge id)kCTForegroundColorAttributeName: (__bridge id)textColor.CGColor,
-        }];
-        if (shadow) attrs[NSShadowAttributeName] = shadow;
-        if (strokeColor) {
-            attrs[NSStrokeColorAttributeName] = strokeColor;
-            attrs[NSStrokeWidthAttributeName] = @(strokeWidth);
-        }
-        NSAttributedString *string = [[NSAttributedString alloc] initWithString:self.displayText ?: @"" attributes:attrs];
-        if (ctFont) CFRelease(ctFont);
-        return string;
-    }
 
     if (self.displayAttributedText.length > 0) {
         NSMutableAttributedString *copy = [self.displayAttributedText mutableCopy];
