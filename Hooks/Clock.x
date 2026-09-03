@@ -245,49 +245,6 @@ LG_FLOAT_PREF_FUNC(LGClockVariableFontHeight, "Clock.VariableFont.Height", 350.0
 LG_FLOAT_PREF_FUNC(LGClockVariableFontSoftness, "Clock.VariableFont.Softness", 56.0)
 LG_BOOL_PREF_FUNC(LGClockDateFormatEnabled, "Lockscreen.Clock.DateFormat.Enabled", YES)
 
-// ===== 文字颜色、阴影、描边设置项 =====
-LG_BOOL_PREF_FUNC(LGClockShadowEnabled, "Clock.Shadow.Enabled", NO)
-LG_FLOAT_PREF_FUNC(LGClockShadowOffsetX, "Clock.Shadow.OffsetX", 0.0)
-LG_FLOAT_PREF_FUNC(LGClockShadowOffsetY, "Clock.Shadow.OffsetY", 2.0)
-LG_FLOAT_PREF_FUNC(LGClockShadowBlur, "Clock.Shadow.Blur", 4.0)
-LG_BOOL_PREF_FUNC(LGClockStrokeEnabled, "Clock.Stroke.Enabled", NO)
-LG_FLOAT_PREF_FUNC(LGClockStrokeWidth, "Clock.Stroke.Width", 2.0)
-
-// 颜色读取函数（从 #RRGGBBAA 格式字符串读取）
-static UIColor *LGClockPrefColor(NSString *key, UIColor *fallback) {
-    NSString *hex = LG_prefString(key, @"");
-    if (!hex || hex.length < 7) return fallback;
-    NSString *value = [[hex stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]
-        stringByReplacingOccurrencesOfString:@"#" withString:@""];
-    if (value.length != 6 && value.length != 8) return fallback;
-    unsigned parsed = 0;
-    if (![[NSScanner scannerWithString:value] scanHexInt:&parsed]) return fallback;
-    CGFloat red, green, blue, alpha;
-    if (value.length == 6) {
-        red = ((parsed >> 16) & 0xff) / 255.0;
-        green = ((parsed >> 8) & 0xff) / 255.0;
-        blue = (parsed & 0xff) / 255.0;
-        alpha = 1.0;
-    } else {
-        red = ((parsed >> 24) & 0xff) / 255.0;
-        green = ((parsed >> 16) & 0xff) / 255.0;
-        blue = ((parsed >> 8) & 0xff) / 255.0;
-        alpha = (parsed & 0xff) / 255.0;
-    }
-    return [UIColor colorWithRed:red green:green blue:blue alpha:alpha];
-}
-
-static UIColor *LGClockTextColor(void) {
-    return LGClockPrefColor(@"Clock.TextColor", UIColor.whiteColor);
-}
-static UIColor *LGClockShadowColor(void) {
-    return LGClockPrefColor(@"Clock.Shadow.Color", UIColor.blackColor);
-}
-static UIColor *LGClockStrokeColor(void) {
-    return LGClockPrefColor(@"Clock.Stroke.Color", UIColor.blackColor);
-}
-
-
 static BOOL LGClockViewIsVisiblyPresent(UIView *view);
 static BOOL LGClockHasBlockingPresentation(UIView *host);
 static CGFloat LGClockNearestNotificationTop(UIView *host, UIView *container, CGRect sourceFrame);
@@ -479,7 +436,6 @@ static CGRect LGClockExpandedLegacyFrameForRect(CGRect frame,
 static CGFloat LGClockModernSyntheticEmbolden(void) {
     if (!LGIsAtLeastiOS16()) return 0.0;
     if (!LGClockVariableFontEnabled()) return 0.0;
-    if (![LGGlassPreferenceValue(@"Clock.SyntheticEmbolden.Enabled") boolValue]) return 0.0;
     CGFloat weight = LGClockVariableFontWeight();
     if (weight <= 400.0) return 0.0;
     return MIN(2.0, ((weight - 400.0) / 600.0) * 2.0);
@@ -1812,6 +1768,8 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
 @property (nonatomic, strong) LGClockBackdropView *glassView;
 @property (nonatomic, strong) UIVisualEffectView *frostView; // 磨砂背景视图
 @property (nonatomic, strong) UILabel *maskLabel;
+@property (nonatomic, strong) CAGradientLayer *textGradientLayer; // 文字渐变层
+@property (nonatomic, strong) NSArray *textGradientColors; // 渐变颜色数组
 @property (nonatomic, copy) NSString *displayText;
 @property (nonatomic, copy) NSAttributedString *displayAttributedText;
 @property (nonatomic, strong) UIFont *displayFont;
@@ -1916,6 +1874,14 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
     _frostView.userInteractionEnabled = NO;
     [self insertSubview:_frostView belowSubview:_maskLabel];
 
+    // 创建文字渐变层（用于实现 iOS 18 风格的彩色时间）
+    _textGradientLayer = [CAGradientLayer layer];
+    _textGradientLayer.frame = self.bounds;
+    _textGradientLayer.startPoint = CGPointMake(0.0, 0.0);
+    _textGradientLayer.endPoint = CGPointMake(1.0, 1.0);
+    _textGradientLayer.hidden = YES;
+    [self.layer insertSublayer:_textGradientLayer atIndex:0];
+
     return self;
 }
 
@@ -1925,57 +1891,138 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
     UIFont *font    = self.displayFont ?: [UIFont systemFontOfSize:84.0 weight:UIFontWeightBold];
     NSString *text  = self.displayText ?: @"";
     NSTextAlignment align = self.displayAlignment;
-    UIColor *textColor = LGClockTextColor();
 
-    NSShadow *shadow = nil;
-    if (LGClockShadowEnabled()) {
-        shadow = [[NSShadow alloc] init];
-        shadow.shadowColor = LGClockShadowColor();
-        shadow.shadowOffset = CGSizeMake(LGClockShadowOffsetX(), LGClockShadowOffsetY());
-        shadow.shadowBlurRadius = LGClockShadowBlur();
-    }
+    // 检查是否启用渐变色时间
+    BOOL gradientEnabled = [LGGlassPreferenceValue(@"Clock.Gradient.Enabled") boolValue];
+    NSString *gradientStyle = LG_prefString(@"Clock.Gradient.Style", @"rainbow");
 
-    NSMutableDictionary *attrs = [NSMutableDictionary dictionary];
-    attrs[NSFontAttributeName] = font;
-    attrs[NSForegroundColorAttributeName] = textColor;
-    if (shadow) attrs[NSShadowAttributeName] = shadow;
-    if (LGClockStrokeEnabled()) {
-        attrs[NSStrokeColorAttributeName] = LGClockStrokeColor();
-        attrs[NSStrokeWidthAttributeName] = @(LGClockStrokeWidth());
-    }
+    if (gradientEnabled && self.textGradientLayer) {
+        // 渐变色时间：用渐变层 + mask 实现
+        self.textGradientLayer.hidden = NO;
 
-    if (self.displayAttributedText.length > 0) {
-        NSMutableAttributedString *m = [self.displayAttributedText mutableCopy];
-        NSRange r = NSMakeRange(0, m.length);
-        [m addAttribute:NSForegroundColorAttributeName value:textColor range:r];
-        if (self.displayFont) [m addAttribute:NSFontAttributeName value:self.displayFont range:r];
-        if (shadow) [m addAttribute:NSShadowAttributeName value:shadow range:r];
-        if (LGClockStrokeEnabled()) {
-            [m addAttribute:NSStrokeColorAttributeName value:LGClockStrokeColor() range:r];
-            [m addAttribute:NSStrokeWidthAttributeName value:@(LGClockStrokeWidth()) range:r];
+        // 设置渐变颜色
+        NSArray *colors = nil;
+        if ([gradientStyle isEqualToString:@"rainbow"]) {
+            // 彩虹渐变：绿 -> 黄 -> 红（iOS 18 风格）
+            colors = @[
+                (__bridge id)[UIColor colorWithRed:0.2 green:0.9 blue:0.4 alpha:1.0].CGColor,
+                (__bridge id)[UIColor colorWithRed:1.0 green:0.9 blue:0.2 alpha:1.0].CGColor,
+                (__bridge id)[UIColor colorWithRed:1.0 green:0.3 blue:0.2 alpha:1.0].CGColor,
+            ];
+        } else if ([gradientStyle isEqualToString:@"ocean"]) {
+            // 海洋渐变：蓝 -> 青 -> 绿
+            colors = @[
+                (__bridge id)[UIColor colorWithRed:0.2 green:0.4 blue:1.0 alpha:1.0].CGColor,
+                (__bridge id)[UIColor colorWithRed:0.2 green:0.9 blue:1.0 alpha:1.0].CGColor,
+                (__bridge id)[UIColor colorWithRed:0.2 green:0.9 blue:0.4 alpha:1.0].CGColor,
+            ];
+        } else if ([gradientStyle isEqualToString:@"sunset"]) {
+            // 日落渐变：紫 -> 粉 -> 橙
+            colors = @[
+                (__bridge id)[UIColor colorWithRed:0.6 green:0.2 blue:0.9 alpha:1.0].CGColor,
+                (__bridge id)[UIColor colorWithRed:1.0 green:0.3 blue:0.7 alpha:1.0].CGColor,
+                (__bridge id)[UIColor colorWithRed:1.0 green:0.6 blue:0.2 alpha:1.0].CGColor,
+            ];
+        } else {
+            // 默认彩虹渐变
+            colors = @[
+                (__bridge id)[UIColor colorWithRed:0.2 green:0.9 blue:0.4 alpha:1.0].CGColor,
+                (__bridge id)[UIColor colorWithRed:1.0 green:0.9 blue:0.2 alpha:1.0].CGColor,
+                (__bridge id)[UIColor colorWithRed:1.0 green:0.3 blue:0.2 alpha:1.0].CGColor,
+            ];
         }
-        mask.attributedText = m;
+        self.textGradientLayer.colors = colors;
+
+        // 设置 maskLabel 为白色，作为渐变层的 mask
+        mask.textColor = UIColor.whiteColor;
+        if (self.displayAttributedText.length > 0) {
+            NSMutableAttributedString *m = [self.displayAttributedText mutableCopy];
+            NSRange r = NSMakeRange(0, m.length);
+            [m addAttribute:NSForegroundColorAttributeName value:UIColor.whiteColor range:r];
+            if (self.displayFont) [m addAttribute:NSFontAttributeName value:self.displayFont range:r];
+            mask.attributedText = m;
+        } else {
+            mask.attributedText = nil;
+            mask.font = font;
+            mask.text = text;
+            mask.textAlignment = align;
+        }
+
+        // 用 maskLabel 的 layer 作为渐变层的 mask
+        self.textGradientLayer.mask = mask.layer;
+        self.textGradientLayer.frame = mask.bounds;
+
     } else {
-        NSAttributedString *attrStr = [[NSAttributedString alloc] initWithString:text attributes:attrs];
-        mask.attributedText = attrStr;
-        mask.textAlignment = align;
+        // 普通颜色时间
+        if (self.textGradientLayer) {
+            self.textGradientLayer.hidden = YES;
+            self.textGradientLayer.mask = nil;
+        }
+
+        // 读取自定义文字颜色
+        UIColor *textColor = UIColor.whiteColor;
+        NSString *colorHex = LG_prefString(@"Clock.TextColor", @"");
+        if (colorHex.length >= 7) {
+            NSString *value = [[colorHex stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]
+                stringByReplacingOccurrencesOfString:@"#" withString:@""];
+            if (value.length == 6 || value.length == 8) {
+                unsigned parsed = 0;
+                if ([[NSScanner scannerWithString:value] scanHexInt:&parsed]) {
+                    CGFloat red, green, blue, alpha;
+                    if (value.length == 6) {
+                        red = ((parsed >> 16) & 0xff) / 255.0;
+                        green = ((parsed >> 8) & 0xff) / 255.0;
+                        blue = (parsed & 0xff) / 255.0;
+                        alpha = 1.0;
+                    } else {
+                        red = ((parsed >> 24) & 0xff) / 255.0;
+                        green = ((parsed >> 16) & 0xff) / 255.0;
+                        blue = ((parsed >> 8) & 0xff) / 255.0;
+                        alpha = (parsed & 0xff) / 255.0;
+                    }
+                    textColor = [UIColor colorWithRed:red green:green blue:blue alpha:alpha];
+                }
+            }
+        }
+
+        if (self.displayAttributedText.length > 0) {
+            NSMutableAttributedString *m = [self.displayAttributedText mutableCopy];
+            NSRange r = NSMakeRange(0, m.length);
+            [m addAttribute:NSForegroundColorAttributeName value:textColor range:r];
+            if (self.displayFont) [m addAttribute:NSFontAttributeName value:self.displayFont range:r];
+            mask.attributedText = m;
+        } else {
+            mask.attributedText = nil;
+            mask.font = font;
+            mask.text = text;
+            mask.textAlignment = align;
+            mask.textColor = textColor;
+        }
     }
+
     self.hidden = (text.length == 0 && self.displayAttributedText.length == 0);
 }
 
 - (NSAttributedString *)lg_maskAttributedString {
-    UIColor *textColor = LGClockTextColor();
-
-    NSShadow *shadow = nil;
-    if (LGClockShadowEnabled()) {
-        shadow = [[NSShadow alloc] init];
-        shadow.shadowColor = LGClockShadowColor();
-        shadow.shadowOffset = CGSizeMake(LGClockShadowOffsetX(), LGClockShadowOffsetY());
-        shadow.shadowBlurRadius = LGClockShadowBlur();
+    if (LGClockVariableFontEnabled() && self.displayText.length > 0 &&
+        (self.displayCTFont || self.displayFont)) {
+        UIFont *font = self.displayFont ?: [UIFont systemFontOfSize:84.0 weight:UIFontWeightBold];
+        id ctFontObject = self.displayCTFont;
+        CTFontRef ctFont = NULL;
+        if (!ctFontObject) {
+            ctFont = CTFontCreateWithFontDescriptor((__bridge CTFontDescriptorRef)font.fontDescriptor,
+                                                    font.pointSize,
+                                                    NULL);
+            ctFontObject = (__bridge id)ctFont;
+        }
+        NSDictionary *attrs = @{
+            (__bridge id)kCTFontAttributeName: ctFontObject ?: font,
+            (__bridge id)kCTForegroundColorAttributeName: (__bridge id)UIColor.whiteColor.CGColor,
+        };
+        NSAttributedString *string = [[NSAttributedString alloc] initWithString:self.displayText ?: @"" attributes:attrs];
+        if (ctFont) CFRelease(ctFont);
+        return string;
     }
-
-    UIColor *strokeColor = LGClockStrokeEnabled() ? LGClockStrokeColor() : nil;
-    CGFloat strokeWidth = LGClockStrokeEnabled() ? LGClockStrokeWidth() : 0.0;
 
     if (self.displayAttributedText.length > 0) {
         NSMutableAttributedString *copy = [self.displayAttributedText mutableCopy];
@@ -1999,13 +2046,8 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
         [copy removeAttribute:NSForegroundColorAttributeName range:fullRange];
         [copy removeAttribute:(__bridge NSString *)kCTForegroundColorAttributeName range:fullRange];
         [copy addAttribute:(__bridge NSString *)kCTForegroundColorAttributeName
-                     value:(id)textColor.CGColor
+                     value:(id)UIColor.whiteColor.CGColor
                      range:fullRange];
-        if (shadow) [copy addAttribute:NSShadowAttributeName value:shadow range:fullRange];
-        if (strokeColor) {
-            [copy addAttribute:NSStrokeColorAttributeName value:strokeColor range:fullRange];
-            [copy addAttribute:NSStrokeWidthAttributeName value:@(strokeWidth) range:fullRange];
-        }
         [copy endEditing];
         return copy;
     }
@@ -2019,15 +2061,10 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
                                                 NULL);
         ctFontObject = (__bridge id)ctFont;
     }
-    NSMutableDictionary *attrs = [NSMutableDictionary dictionaryWithDictionary:@{
+    NSDictionary *attrs = @{
         (__bridge id)kCTFontAttributeName: ctFontObject ?: font,
-        (__bridge id)kCTForegroundColorAttributeName: (__bridge id)textColor.CGColor,
-    }];
-    if (shadow) attrs[NSShadowAttributeName] = shadow;
-    if (strokeColor) {
-        attrs[NSStrokeColorAttributeName] = strokeColor;
-        attrs[NSStrokeWidthAttributeName] = @(strokeWidth);
-    }
+        (__bridge id)kCTForegroundColorAttributeName: (__bridge id)UIColor.whiteColor.CGColor,
+    };
     NSAttributedString *string = [[NSAttributedString alloc] initWithString:self.displayText ?: @"" attributes:attrs];
     if (ctFont) CFRelease(ctFont);
     return string;
@@ -2125,6 +2162,11 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
 
     self.maskLabel.frame = textFrame;
     [self lg_applyMaskLabel];
+
+    // 更新渐变层的 frame
+    if (self.textGradientLayer && !self.textGradientLayer.hidden) {
+        self.textGradientLayer.frame = self.maskLabel.bounds;
+    }
 
     // 磨砂效果：根据偏好设置显示/隐藏磨砂背景
     BOOL frostEnabled = [LGGlassPreferenceValue(@"Clock.Frost.Enabled") boolValue];
