@@ -1769,7 +1769,6 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
 @property (nonatomic, strong) UIVisualEffectView *frostView; // 磨砂背景视图
 @property (nonatomic, strong) UILabel *maskLabel;
 @property (nonatomic, strong) CAGradientLayer *textGradientLayer; // 文字渐变层
-@property (nonatomic, strong) NSArray *textGradientColors; // 渐变颜色数组
 @property (nonatomic, copy) NSString *displayText;
 @property (nonatomic, copy) NSAttributedString *displayAttributedText;
 @property (nonatomic, strong) UIFont *displayFont;
@@ -1894,29 +1893,26 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
 
     // 检查是否启用渐变色时间
     BOOL gradientEnabled = [LGGlassPreferenceValue(@"Clock.Gradient.Enabled") boolValue];
-    NSString *gradientStyle = LG_prefString(@"Clock.Gradient.Style", @"rainbow");
+    NSInteger gradientStyle = (NSInteger)[LGGlassPreferenceValue(@"Clock.Gradient.Style") floatValue];
+
+    // 字体加粗
+    CGFloat fontWeight = [LGGlassPreferenceValue(@"Clock.Font.Weight") floatValue];
+    if (fontWeight <= 0) fontWeight = 750.0;
 
     if (gradientEnabled && self.textGradientLayer) {
         // 渐变色时间：用渐变层 + mask 实现
         self.textGradientLayer.hidden = NO;
 
-        // 设置渐变颜色
+        // 设置渐变颜色（0=彩虹，1=海洋，2=日落）
         NSArray *colors = nil;
-        if ([gradientStyle isEqualToString:@"rainbow"]) {
-            // 彩虹渐变：绿 -> 黄 -> 红（iOS 18 风格）
-            colors = @[
-                (__bridge id)[UIColor colorWithRed:0.2 green:0.9 blue:0.4 alpha:1.0].CGColor,
-                (__bridge id)[UIColor colorWithRed:1.0 green:0.9 blue:0.2 alpha:1.0].CGColor,
-                (__bridge id)[UIColor colorWithRed:1.0 green:0.3 blue:0.2 alpha:1.0].CGColor,
-            ];
-        } else if ([gradientStyle isEqualToString:@"ocean"]) {
+        if (gradientStyle == 1) {
             // 海洋渐变：蓝 -> 青 -> 绿
             colors = @[
                 (__bridge id)[UIColor colorWithRed:0.2 green:0.4 blue:1.0 alpha:1.0].CGColor,
                 (__bridge id)[UIColor colorWithRed:0.2 green:0.9 blue:1.0 alpha:1.0].CGColor,
                 (__bridge id)[UIColor colorWithRed:0.2 green:0.9 blue:0.4 alpha:1.0].CGColor,
             ];
-        } else if ([gradientStyle isEqualToString:@"sunset"]) {
+        } else if (gradientStyle == 2) {
             // 日落渐变：紫 -> 粉 -> 橙
             colors = @[
                 (__bridge id)[UIColor colorWithRed:0.6 green:0.2 blue:0.9 alpha:1.0].CGColor,
@@ -1924,7 +1920,7 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
                 (__bridge id)[UIColor colorWithRed:1.0 green:0.6 blue:0.2 alpha:1.0].CGColor,
             ];
         } else {
-            // 默认彩虹渐变
+            // 默认彩虹渐变：绿 -> 黄 -> 红（iOS 18 风格）
             colors = @[
                 (__bridge id)[UIColor colorWithRed:0.2 green:0.9 blue:0.4 alpha:1.0].CGColor,
                 (__bridge id)[UIColor colorWithRed:1.0 green:0.9 blue:0.2 alpha:1.0].CGColor,
@@ -1949,8 +1945,9 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
         }
 
         // 用 maskLabel 的 layer 作为渐变层的 mask
-        self.textGradientLayer.mask = mask.layer;
+        // 关键：mask 的 frame 必须和渐变层一致，否则滚动时会变形
         self.textGradientLayer.frame = mask.bounds;
+        self.textGradientLayer.mask = mask.layer;
 
     } else {
         // 普通颜色时间
@@ -2163,9 +2160,10 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
     self.maskLabel.frame = textFrame;
     [self lg_applyMaskLabel];
 
-    // 更新渐变层的 frame
+    // 更新渐变层的 frame（修复屏幕滚动时字体会变形的问题）
     if (self.textGradientLayer && !self.textGradientLayer.hidden) {
         self.textGradientLayer.frame = self.maskLabel.bounds;
+        self.textGradientLayer.mask = self.maskLabel.layer;
     }
 
     // 磨砂效果：根据偏好设置显示/隐藏磨砂背景
@@ -2208,6 +2206,12 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
 - (void)layoutSubviews {
     [super layoutSubviews];
     self.glassView.frame = self.bounds;
+
+    // 布局变化时更新渐变层的 frame（修复屏幕滚动时字体会变形的问题）
+    if (self.textGradientLayer && !self.textGradientLayer.hidden && self.maskLabel) {
+        self.textGradientLayer.frame = self.maskLabel.bounds;
+        self.textGradientLayer.mask = self.maskLabel.layer;
+    }
     // 优化：只有当 bounds 真正变化时才更新 mask，减少不必要的耗时操作
     NSValue *lastLayoutBounds = objc_getAssociatedObject(self, @selector(lgClockLastLayoutBounds));
     if (lastLayoutBounds) {
