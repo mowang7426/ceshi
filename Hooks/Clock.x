@@ -245,6 +245,48 @@ LG_FLOAT_PREF_FUNC(LGClockVariableFontHeight, "Clock.VariableFont.Height", 350.0
 LG_FLOAT_PREF_FUNC(LGClockVariableFontSoftness, "Clock.VariableFont.Softness", 56.0)
 LG_BOOL_PREF_FUNC(LGClockDateFormatEnabled, "Lockscreen.Clock.DateFormat.Enabled", YES)
 
+// ===== 文字颜色、阴影、描边设置项 =====
+LG_BOOL_PREF_FUNC(LGClockShadowEnabled, "Clock.Shadow.Enabled", NO)
+LG_FLOAT_PREF_FUNC(LGClockShadowOffsetX, "Clock.Shadow.OffsetX", 0.0)
+LG_FLOAT_PREF_FUNC(LGClockShadowOffsetY, "Clock.Shadow.OffsetY", 2.0)
+LG_FLOAT_PREF_FUNC(LGClockShadowBlur, "Clock.Shadow.Blur", 4.0)
+LG_BOOL_PREF_FUNC(LGClockStrokeEnabled, "Clock.Stroke.Enabled", NO)
+LG_FLOAT_PREF_FUNC(LGClockStrokeWidth, "Clock.Stroke.Width", 2.0)
+
+// 颜色读取函数（从 #RRGGBBAA 格式字符串读取）
+static UIColor *LGClockPrefColor(NSString *key, UIColor *fallback) {
+    NSString *hex = LG_prefString(key, @"");
+    if (!hex || hex.length < 7) return fallback;
+    NSString *value = [[hex stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]
+        stringByReplacingOccurrencesOfString:@"#" withString:@""];
+    if (value.length != 6 && value.length != 8) return fallback;
+    unsigned parsed = 0;
+    if (![[NSScanner scannerWithString:value] scanHexInt:&parsed]) return fallback;
+    CGFloat red, green, blue, alpha;
+    if (value.length == 6) {
+        red = ((parsed >> 16) & 0xff) / 255.0;
+        green = ((parsed >> 8) & 0xff) / 255.0;
+        blue = (parsed & 0xff) / 255.0;
+        alpha = 1.0;
+    } else {
+        red = ((parsed >> 24) & 0xff) / 255.0;
+        green = ((parsed >> 16) & 0xff) / 255.0;
+        blue = ((parsed >> 8) & 0xff) / 255.0;
+        alpha = (parsed & 0xff) / 255.0;
+    }
+    return [UIColor colorWithRed:red green:green blue:blue alpha:alpha];
+}
+
+static UIColor *LGClockTextColor(void) {
+    return LGClockPrefColor(@"Clock.TextColor", UIColor.whiteColor);
+}
+static UIColor *LGClockShadowColor(void) {
+    return LGClockPrefColor(@"Clock.Shadow.Color", UIColor.blackColor);
+}
+static UIColor *LGClockStrokeColor(void) {
+    return LGClockPrefColor(@"Clock.Stroke.Color", UIColor.blackColor);
+}
+
 static BOOL LGClockViewIsVisiblyPresent(UIView *view);
 static BOOL LGClockHasBlockingPresentation(UIView *host);
 static CGFloat LGClockNearestNotificationTop(UIView *host, UIView *container, CGRect sourceFrame);
@@ -1881,24 +1923,64 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
     UIFont *font    = self.displayFont ?: [UIFont systemFontOfSize:84.0 weight:UIFontWeightBold];
     NSString *text  = self.displayText ?: @"";
     NSTextAlignment align = self.displayAlignment;
+    UIColor *textColor = LGClockTextColor();
+
+    // 构建阴影
+    NSShadow *shadow = nil;
+    if (LGClockShadowEnabled()) {
+        shadow = [[NSShadow alloc] init];
+        shadow.shadowColor = LGClockShadowColor();
+        shadow.shadowOffset = CGSizeMake(LGClockShadowOffsetX(), LGClockShadowOffsetY());
+        shadow.shadowBlurRadius = LGClockShadowBlur();
+    }
 
     if (self.displayAttributedText.length > 0) {
         NSMutableAttributedString *m = [self.displayAttributedText mutableCopy];
         NSRange r = NSMakeRange(0, m.length);
-        [m addAttribute:NSForegroundColorAttributeName value:UIColor.whiteColor range:r];
+        [m addAttribute:NSForegroundColorAttributeName value:textColor range:r];
         if (self.displayFont) [m addAttribute:NSFontAttributeName value:self.displayFont range:r];
+        if (shadow) [m addAttribute:NSShadowAttributeName value:shadow range:r];
+        if (LGClockStrokeEnabled()) {
+            [m addAttribute:NSStrokeColorAttributeName value:LGClockStrokeColor() range:r];
+            [m addAttribute:NSStrokeWidthAttributeName value:@(LGClockStrokeWidth()) range:r];
+        }
         mask.attributedText = m;
     } else {
         mask.attributedText = nil;
         mask.font = font;
         mask.text = text;
         mask.textAlignment = align;
-        mask.textColor = UIColor.whiteColor;
+        mask.textColor = textColor;
+        if (shadow) {
+            mask.shadowColor = shadow.shadowColor;
+            mask.shadowOffset = shadow.shadowOffset;
+            mask.shadowBlurRadius = shadow.shadowBlurRadius;
+        } else {
+            mask.shadowColor = nil;
+            mask.shadowOffset = CGSizeZero;
+            mask.shadowBlurRadius = 0;
+        }
     }
     self.hidden = (text.length == 0 && self.displayAttributedText.length == 0);
 }
 
+
 - (NSAttributedString *)lg_maskAttributedString {
+    UIColor *textColor = LGClockTextColor();
+
+    // 构建阴影（CoreText 格式）
+    NSShadow *shadow = nil;
+    if (LGClockShadowEnabled()) {
+        shadow = [[NSShadow alloc] init];
+        shadow.shadowColor = LGClockShadowColor();
+        shadow.shadowOffset = CGSizeMake(LGClockShadowOffsetX(), LGClockShadowOffsetY());
+        shadow.shadowBlurRadius = LGClockShadowBlur();
+    }
+
+    // 构建描边属性
+    UIColor *strokeColor = LGClockStrokeEnabled() ? LGClockStrokeColor() : nil;
+    CGFloat strokeWidth = LGClockStrokeEnabled() ? LGClockStrokeWidth() : 0.0;
+
     if (LGClockVariableFontEnabled() && self.displayText.length > 0 &&
         (self.displayCTFont || self.displayFont)) {
         UIFont *font = self.displayFont ?: [UIFont systemFontOfSize:84.0 weight:UIFontWeightBold];
@@ -1910,10 +1992,15 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
                                                     NULL);
             ctFontObject = (__bridge id)ctFont;
         }
-        NSDictionary *attrs = @{
+        NSMutableDictionary *attrs = [NSMutableDictionary dictionaryWithDictionary:@{
             (__bridge id)kCTFontAttributeName: ctFontObject ?: font,
-            (__bridge id)kCTForegroundColorAttributeName: (__bridge id)UIColor.whiteColor.CGColor,
-        };
+            (__bridge id)kCTForegroundColorAttributeName: (__bridge id)textColor.CGColor,
+        }];
+        if (shadow) attrs[(__bridge id)kCTShadowAttributeName] = shadow;
+        if (strokeColor) {
+            attrs[(__bridge id)kCTStrokeColorAttributeName] = (__bridge id)strokeColor.CGColor;
+            attrs[(__bridge id)kCTStrokeWidthAttributeName] = @(strokeWidth);
+        }
         NSAttributedString *string = [[NSAttributedString alloc] initWithString:self.displayText ?: @"" attributes:attrs];
         if (ctFont) CFRelease(ctFont);
         return string;
@@ -1941,8 +2028,13 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
         [copy removeAttribute:NSForegroundColorAttributeName range:fullRange];
         [copy removeAttribute:(__bridge NSString *)kCTForegroundColorAttributeName range:fullRange];
         [copy addAttribute:(__bridge NSString *)kCTForegroundColorAttributeName
-                     value:(id)UIColor.whiteColor.CGColor
+                     value:(id)textColor.CGColor
                      range:fullRange];
+        if (shadow) [copy addAttribute:NSShadowAttributeName value:shadow range:fullRange];
+        if (strokeColor) {
+            [copy addAttribute:NSStrokeColorAttributeName value:strokeColor range:fullRange];
+            [copy addAttribute:NSStrokeWidthAttributeName value:@(strokeWidth) range:fullRange];
+        }
         [copy endEditing];
         return copy;
     }
@@ -1956,14 +2048,20 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
                                                 NULL);
         ctFontObject = (__bridge id)ctFont;
     }
-    NSDictionary *attrs = @{
+    NSMutableDictionary *attrs = [NSMutableDictionary dictionaryWithDictionary:@{
         (__bridge id)kCTFontAttributeName: ctFontObject ?: font,
-        (__bridge id)kCTForegroundColorAttributeName: (__bridge id)UIColor.whiteColor.CGColor,
-    };
+        (__bridge id)kCTForegroundColorAttributeName: (__bridge id)textColor.CGColor,
+    }];
+    if (shadow) attrs[(__bridge id)kCTShadowAttributeName] = shadow;
+    if (strokeColor) {
+        attrs[(__bridge id)kCTStrokeColorAttributeName] = (__bridge id)strokeColor.CGColor;
+        attrs[(__bridge id)kCTStrokeWidthAttributeName] = @(strokeWidth);
+    }
     NSAttributedString *string = [[NSAttributedString alloc] initWithString:self.displayText ?: @"" attributes:attrs];
     if (ctFont) CFRelease(ctFont);
     return string;
 }
+
 
 - (UIImage *)lg_maskImageForBounds:(CGRect)bounds {
     if (CGRectIsEmpty(bounds) || self.displayText.length == 0 || !self.displayFont) return nil;
