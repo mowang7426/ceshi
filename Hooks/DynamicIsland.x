@@ -57,7 +57,7 @@ static BOOL diColorLooksBlack(CGColorRef cg) {
 }
 
 static void diClearBlackRenderingTree(UIView *root, NSInteger depth) {
-    if (!root || depth > 16) return;
+    if (!root || depth > 24) return;
     @try {
         // Nice 的黑底不一定挂在 backgroundContainer 名称下；这里改为
         // “只清理真正的黑色绘制”，避免破坏图标、图片和文字颜色。
@@ -96,6 +96,31 @@ static void diClearBlackRenderingTree(UIView *root, NSInteger depth) {
                 }
                 if (diColorLooksBlack(shape.strokeColor) && shape.lineWidth > 2.0) {
                     shape.strokeColor = UIColor.clearColor.CGColor;
+                }
+            }
+            if (layer.sublayers.count > 0) {
+                for (CALayer *sub in [layer.sublayers copy]) {
+                    if (diColorLooksBlack(sub.backgroundColor)) {
+                        sub.backgroundColor = UIColor.clearColor.CGColor;
+                    }
+                    if ([sub isKindOfClass:[CAShapeLayer class]]) {
+                        CAShapeLayer *shape = (CAShapeLayer *)sub;
+                        if (diColorLooksBlack(shape.fillColor)) {
+                            shape.fillColor = UIColor.clearColor.CGColor;
+                        }
+                    }
+                }
+            }
+        }
+
+        if ([root isKindOfClass:[UIImageView class]]) {
+            UIImageView *iv = (UIImageView *)root;
+            if (iv.image && iv.bounds.size.width < 100 && iv.bounds.size.height < 100) {
+                if (diColorLooksBlack(iv.backgroundColor.CGColor)) {
+                    iv.backgroundColor = UIColor.clearColor;
+                }
+                if (diColorLooksBlack(iv.layer.backgroundColor)) {
+                    iv.layer.backgroundColor = UIColor.clearColor.CGColor;
                 }
             }
         }
@@ -413,6 +438,17 @@ static void diApplyGlassToNiceCurrentContainer(UIView *container) {
         diApplyGlassToView(container, YES);
         diPrepareNiceContainer(container);
         diClearBlackRenderingTree(container, 0);
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            @try {
+                diClearBlackRenderingTree(container, 0);
+                diClearLargeBackgroundLayers(container.layer, container, 0);
+            } @catch (__unused NSException *e) {}
+        });
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            @try {
+                diClearBlackRenderingTree(container, 0);
+            } @catch (__unused NSException *e) {}
+        });
 
         LGLiveBackdropView *glass = objc_getAssociatedObject(container, kDIGlassKey);
         if (glass) {
