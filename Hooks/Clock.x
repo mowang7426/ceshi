@@ -287,6 +287,7 @@ static UIColor *LGClockStrokeColor(void) {
     return LGClockPrefColor(@"Clock.Stroke.Color", UIColor.blackColor);
 }
 
+
 static BOOL LGClockViewIsVisiblyPresent(UIView *view);
 static BOOL LGClockHasBlockingPresentation(UIView *host);
 static CGFloat LGClockNearestNotificationTop(UIView *host, UIView *container, CGRect sourceFrame);
@@ -1934,6 +1935,16 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
         shadow.shadowBlurRadius = LGClockShadowBlur();
     }
 
+    // 构建属性字符串（支持阴影和描边的模糊效果）
+    NSMutableDictionary *attrs = [NSMutableDictionary dictionary];
+    attrs[NSFontAttributeName] = font;
+    attrs[NSForegroundColorAttributeName] = textColor;
+    if (shadow) attrs[NSShadowAttributeName] = shadow;
+    if (LGClockStrokeEnabled()) {
+        attrs[NSStrokeColorAttributeName] = LGClockStrokeColor();
+        attrs[NSStrokeWidthAttributeName] = @(LGClockStrokeWidth());
+    }
+
     if (self.displayAttributedText.length > 0) {
         NSMutableAttributedString *m = [self.displayAttributedText mutableCopy];
         NSRange r = NSMakeRange(0, m.length);
@@ -1946,29 +1957,18 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
         }
         mask.attributedText = m;
     } else {
-        mask.attributedText = nil;
-        mask.font = font;
-        mask.text = text;
+        // 用属性字符串实现，支持阴影模糊效果
+        NSAttributedString *attrStr = [[NSAttributedString alloc] initWithString:text attributes:attrs];
+        mask.attributedText = attrStr;
         mask.textAlignment = align;
-        mask.textColor = textColor;
-        if (shadow) {
-            mask.shadowColor = shadow.shadowColor;
-            mask.shadowOffset = shadow.shadowOffset;
-            mask.shadowBlurRadius = shadow.shadowBlurRadius;
-        } else {
-            mask.shadowColor = nil;
-            mask.shadowOffset = CGSizeZero;
-            mask.shadowBlurRadius = 0;
-        }
     }
     self.hidden = (text.length == 0 && self.displayAttributedText.length == 0);
 }
 
-
 - (NSAttributedString *)lg_maskAttributedString {
     UIColor *textColor = LGClockTextColor();
 
-    // 构建阴影（CoreText 格式）
+    // 构建阴影
     NSShadow *shadow = nil;
     if (LGClockShadowEnabled()) {
         shadow = [[NSShadow alloc] init];
@@ -1996,10 +1996,10 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
             (__bridge id)kCTFontAttributeName: ctFontObject ?: font,
             (__bridge id)kCTForegroundColorAttributeName: (__bridge id)textColor.CGColor,
         }];
-        if (shadow) attrs[(__bridge id)kCTShadowAttributeName] = shadow;
+        if (shadow) attrs[NSShadowAttributeName] = shadow;
         if (strokeColor) {
-            attrs[(__bridge id)kCTStrokeColorAttributeName] = (__bridge id)strokeColor.CGColor;
-            attrs[(__bridge id)kCTStrokeWidthAttributeName] = @(strokeWidth);
+            attrs[NSStrokeColorAttributeName] = strokeColor;
+            attrs[NSStrokeWidthAttributeName] = @(strokeWidth);
         }
         NSAttributedString *string = [[NSAttributedString alloc] initWithString:self.displayText ?: @"" attributes:attrs];
         if (ctFont) CFRelease(ctFont);
@@ -2052,16 +2052,15 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
         (__bridge id)kCTFontAttributeName: ctFontObject ?: font,
         (__bridge id)kCTForegroundColorAttributeName: (__bridge id)textColor.CGColor,
     }];
-    if (shadow) attrs[(__bridge id)kCTShadowAttributeName] = shadow;
+    if (shadow) attrs[NSShadowAttributeName] = shadow;
     if (strokeColor) {
-        attrs[(__bridge id)kCTStrokeColorAttributeName] = (__bridge id)strokeColor.CGColor;
-        attrs[(__bridge id)kCTStrokeWidthAttributeName] = @(strokeWidth);
+        attrs[NSStrokeColorAttributeName] = strokeColor;
+        attrs[NSStrokeWidthAttributeName] = @(strokeWidth);
     }
     NSAttributedString *string = [[NSAttributedString alloc] initWithString:self.displayText ?: @"" attributes:attrs];
     if (ctFont) CFRelease(ctFont);
     return string;
 }
-
 
 - (UIImage *)lg_maskImageForBounds:(CGRect)bounds {
     if (CGRectIsEmpty(bounds) || self.displayText.length == 0 || !self.displayFont) return nil;
