@@ -676,15 +676,37 @@ NSArray<NSDictionary *> *LGClockItems(void) {
         LGSwitchSetting(@"Clock.Enabled",
                         LGLocalized(@"prefs.lockscreen_clock.enabled.title"),
                         LGLocalized(@"prefs.lockscreen_clock.enabled.subtitle"), YES),
+
+        // ===== 字体大小（扩大范围，支持超大字体）=====
         LGSettingControlledByKey(
             LGSliderSetting(@"Clock.VariableFont.SizeScale",
-                            LGLocalized(@"prefs.lockscreen_clock.font_size.title"),
-                            LGLocalized(@"prefs.lockscreen_clock.font_size.subtitle"),
-                            1.0, 0.5, 2.0, 2),
+                            @"字体大小",
+                            @"调整锁屏时间的字体大小（0.5-4.0，支持超大字体）",
+                            1.4, 0.5, 4.0, 2),
             @"Clock.Enabled", @YES),
 
+        // ===== 渐变色时间（iOS 18 风格）=====
+        LGSectionSetting(@"渐变色时间", @"iOS 18 风格的彩色时间显示"),
+        LGSettingControlledByKey(
+            LGSwitchSetting(@"Clock.Gradient.Enabled",
+                            @"启用渐变色时间",
+                            @"启用后时间会显示为渐变色（彩虹/海洋/日落）", NO),
+            @"Clock.Enabled", @YES),
+        LGSettingControlledByKey(@{
+            @"type": @"menu",
+            @"key": @"Clock.Gradient.Style",
+            @"title": @"渐变样式",
+            @"subtitle": @"选择渐变色的样式",
+            @"default": @"rainbow",
+            @"options": @[
+                @{@"label": @"🌈 彩虹（绿→黄→红）", @"value": @"rainbow"},
+                @{@"label": @"🌊 海洋（蓝→青→绿）", @"value": @"ocean"},
+                @{@"label": @"🌅 日落（紫→粉→橙）", @"value": @"sunset"},
+            ]
+        }, @"Clock.Gradient.Enabled", @YES),
+
         // ===== 文字颜色 =====
-        LGSectionSetting(@"文字颜色", @"自定义锁屏时间的文字颜色"),
+        LGSectionSetting(@"文字颜色", @"自定义锁屏时间的文字颜色（渐变色关闭时生效）"),
         LGSettingControlledByKey(@{
             @"type": @"color",
             @"key": @"Clock.TextColor",
@@ -693,93 +715,12 @@ NSArray<NSDictionary *> *LGClockItems(void) {
             @"default": @"#FFFFFF"
         }, @"Clock.Enabled", @YES),
 
-        // ===== 文字阴影 =====
-        LGSectionSetting(@"文字阴影", @"添加阴影让文字在任何背景下都能看清"),
-        LGSettingControlledByKey(
-            LGSwitchSetting(@"Clock.Shadow.Enabled",
-                            @"启用阴影",
-                            @"启用文字阴影效果", NO),
-            @"Clock.Enabled", @YES),
-        LGSettingControlledByKey(@{
-            @"type": @"color",
-            @"key": @"Clock.Shadow.Color",
-            @"title": @"阴影颜色",
-            @"subtitle": @"设置文字阴影的颜色（默认黑色）",
-            @"default": @"#000000"
-        }, @"Clock.Shadow.Enabled", @YES),
-        LGSettingControlledByKey(
-            LGSliderSetting(@"Clock.Shadow.OffsetX",
-                            @"阴影水平偏移",
-                            @"阴影的水平偏移量",
-                            0.0, -10.0, 10.0, 1),
-            @"Clock.Shadow.Enabled", @YES),
-        LGSettingControlledByKey(
-            LGSliderSetting(@"Clock.Shadow.OffsetY",
-                            @"阴影垂直偏移",
-                            @"阴影的垂直偏移量",
-                            2.0, -10.0, 10.0, 1),
-            @"Clock.Shadow.Enabled", @YES),
-        LGSettingControlledByKey(
-            LGSliderSetting(@"Clock.Shadow.Blur",
-                            @"阴影模糊半径",
-                            @"阴影的模糊程度",
-                            4.0, 0.0, 20.0, 1),
-            @"Clock.Shadow.Enabled", @YES),
-
-        // ===== 文字描边 =====
-        LGSectionSetting(@"文字描边", @"添加描边让文字在任何背景下都能看清"),
-        LGSettingControlledByKey(
-            LGSwitchSetting(@"Clock.Stroke.Enabled",
-                            @"启用描边",
-                            @"启用文字描边效果", NO),
-            @"Clock.Enabled", @YES),
-        LGSettingControlledByKey(@{
-            @"type": @"color",
-            @"key": @"Clock.Stroke.Color",
-            @"title": @"描边颜色",
-            @"subtitle": @"设置文字描边的颜色（默认黑色）",
-            @"default": @"#000000"
-        }, @"Clock.Stroke.Enabled", @YES),
-        LGSettingControlledByKey(
-            LGSliderSetting(@"Clock.Stroke.Width",
-                            @"描边宽度",
-                            @"文字描边的宽度",
-                            2.0, 0.0, 10.0, 1),
-            @"Clock.Stroke.Enabled", @YES),
-
-        // ===== 可变字体参数 =====
-        LGSectionSetting(@"可变字体参数", @"精细调整字体的粗细、宽度、高度和柔和度"),
-        LGSettingControlledByKey(
-            LGSliderSetting(@"Clock.VariableFont.Weight",
-                            @"字体粗细",
-                            @"字体的粗细程度（100-900）",
-                            750.0, 100.0, 900.0, 0),
-            @"Clock.Enabled", @YES),
-        LGSettingControlledByKey(
-            LGSliderSetting(@"Clock.VariableFont.Width",
-                            @"字体宽度",
-                            @"字体的宽度（50-200）",
-                            100.0, 50.0, 200.0, 0),
-            @"Clock.Enabled", @YES),
-        LGSettingControlledByKey(
-            LGSliderSetting(@"Clock.VariableFont.Height",
-                            @"字体高度",
-                            @"字体的高度（200-500）",
-                            350.0, 200.0, 500.0, 0),
-            @"Clock.Enabled", @YES),
-        LGSettingControlledByKey(
-            LGSliderSetting(@"Clock.VariableFont.Softness",
-                            @"字体柔和度",
-                            @"字体的柔和程度（0-100）",
-                            56.0, 0.0, 100.0, 0),
-            @"Clock.Enabled", @YES),
-
-        // ===== 字体清晰度设置 =====
+        // ===== 字体清晰度 =====
         LGSectionSetting(@"字体清晰度", @"调整字体的清晰度，解决字体模糊问题"),
         LGSettingControlledByKey(
             LGSwitchSetting(@"Clock.SyntheticEmbolden.Enabled",
                             @"启用字体合成加粗",
-                            @"关闭后字体会更清晰（推荐关闭，解决模糊问题）", NO),
+                            @"关闭后字体会更清晰（推荐关闭）", NO),
             @"Clock.Enabled", @YES),
 
         // ===== 磨砂和模糊 =====
