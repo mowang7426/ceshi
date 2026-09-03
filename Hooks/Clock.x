@@ -1903,33 +1903,33 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
     if (gradientEnabled && self.textGradientLayer) {
         // 渐变色时间：用渐变层 + mask 实现
 
-        // 关键修复：把 maskLabel 从视图层级中移除，只保留它的 layer 作为 mask
-        // 这样就只有一层渐变层，不会有"掉漆"的问题
+        // 关键修复1：把 maskLabel 从视图层级中移除，只保留它的 layer 作为 mask
         if (mask.superview) {
             self.maskLabelOriginalSuperview = mask.superview;
             [mask removeFromSuperview];
         }
+
+        // 关键修复2：把 glassView 完全隐藏，避免底下还有一层透明的时间
+        self.glassView.hidden = YES;
+        self.glassView.shapeMaskImage = nil;
 
         self.textGradientLayer.hidden = NO;
 
         // 设置渐变颜色（0=彩虹，1=海洋，2=日落）
         NSArray *colors = nil;
         if (gradientStyle == 1) {
-            // 海洋渐变：蓝 -> 青 -> 绿
             colors = @[
                 (__bridge id)[UIColor colorWithRed:0.2 green:0.4 blue:1.0 alpha:1.0].CGColor,
                 (__bridge id)[UIColor colorWithRed:0.2 green:0.9 blue:1.0 alpha:1.0].CGColor,
                 (__bridge id)[UIColor colorWithRed:0.2 green:0.9 blue:0.4 alpha:1.0].CGColor,
             ];
         } else if (gradientStyle == 2) {
-            // 日落渐变：紫 -> 粉 -> 橙
             colors = @[
                 (__bridge id)[UIColor colorWithRed:0.6 green:0.2 blue:0.9 alpha:1.0].CGColor,
                 (__bridge id)[UIColor colorWithRed:1.0 green:0.3 blue:0.7 alpha:1.0].CGColor,
                 (__bridge id)[UIColor colorWithRed:1.0 green:0.6 blue:0.2 alpha:1.0].CGColor,
             ];
         } else {
-            // 默认彩虹渐变：绿 -> 黄 -> 红（iOS 18 风格）
             colors = @[
                 (__bridge id)[UIColor colorWithRed:0.2 green:0.9 blue:0.4 alpha:1.0].CGColor,
                 (__bridge id)[UIColor colorWithRed:1.0 green:0.9 blue:0.2 alpha:1.0].CGColor,
@@ -1953,7 +1953,7 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
             mask.textAlignment = align;
         }
 
-        // 关键：mask 的 frame 必须和渐变层一致，否则滚动时会变形
+        // 关键：mask 的 frame 必须和渐变层一致
         self.textGradientLayer.frame = mask.bounds;
         self.textGradientLayer.mask = mask.layer;
 
@@ -1964,6 +1964,9 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
         if (!mask.superview && self.maskLabelOriginalSuperview) {
             [self.maskLabelOriginalSuperview addSubview:mask];
         }
+
+        // 恢复 glassView 的显示（如果需要的话）
+        // self.glassView.hidden = NO;
 
         if (self.textGradientLayer) {
             self.textGradientLayer.hidden = YES;
@@ -2174,12 +2177,6 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
     self.maskLabel.frame = textFrame;
     [self lg_applyMaskLabel];
 
-    // 更新渐变层的 frame（修复屏幕滚动时字体会变形的问题）
-    if (self.textGradientLayer && !self.textGradientLayer.hidden) {
-        self.textGradientLayer.frame = self.maskLabel.bounds;
-        self.textGradientLayer.mask = self.maskLabel.layer;
-    }
-
     // 磨砂效果：根据偏好设置显示/隐藏磨砂背景
     BOOL frostEnabled = [LGGlassPreferenceValue(@"Clock.Frost.Enabled") boolValue];
     CGFloat blurValue = [LGGlassPreferenceValue(@"Clock.Blur") floatValue];
@@ -2200,7 +2197,9 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
     }
 
     // 恢复 mask 图像生成（让时间显示），但保持 0.5 秒节流（减少 CPU 占用）
-    if ([self lg_maskNeedsRebuildForBounds:self.bounds]) {
+    // 关键修复：启用渐变色时间时，跳过 LGQueueClockMaskImage，避免底下还有一层透明的时间
+    BOOL gradientEnabled = [LGGlassPreferenceValue(@"Clock.Gradient.Enabled") boolValue];
+    if (!gradientEnabled && [self lg_maskNeedsRebuildForBounds:self.bounds]) {
         UIImage *image = [self lg_maskImageForBounds:self.bounds];
         if (image) {
             self.cachedMaskBounds = self.bounds;
@@ -2221,7 +2220,7 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
     [super layoutSubviews];
     self.glassView.frame = self.bounds;
 
-    // 布局变化时更新渐变层的 frame（修复屏幕滚动时字体会变形的问题）
+    // 布局变化时更新渐变层的 frame
     if (self.textGradientLayer && !self.textGradientLayer.hidden && self.maskLabel) {
         self.textGradientLayer.frame = self.maskLabel.bounds;
         self.textGradientLayer.mask = self.maskLabel.layer;
