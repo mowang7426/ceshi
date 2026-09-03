@@ -690,7 +690,7 @@ NSArray<NSDictionary *> *LGClockItems(void) {
             @"key": @"Clock.TextColor",
             @"title": @"文字颜色",
             @"subtitle": @"设置锁屏时间的文字颜色（默认白色）",
-            @"default": [UIColor whiteColor]
+            @"default": @"#FFFFFF"
         }, @"Clock.Enabled", @YES),
 
         // ===== 文字阴影 =====
@@ -705,7 +705,7 @@ NSArray<NSDictionary *> *LGClockItems(void) {
             @"key": @"Clock.Shadow.Color",
             @"title": @"阴影颜色",
             @"subtitle": @"设置文字阴影的颜色（默认黑色）",
-            @"default": [UIColor blackColor]
+            @"default": @"#000000"
         }, @"Clock.Shadow.Enabled", @YES),
         LGSettingControlledByKey(
             LGSliderSetting(@"Clock.Shadow.OffsetX",
@@ -738,7 +738,7 @@ NSArray<NSDictionary *> *LGClockItems(void) {
             @"key": @"Clock.Stroke.Color",
             @"title": @"描边颜色",
             @"subtitle": @"设置文字描边的颜色（默认黑色）",
-            @"default": [UIColor blackColor]
+            @"default": @"#000000"
         }, @"Clock.Stroke.Enabled", @YES),
         LGSettingControlledByKey(
             LGSliderSetting(@"Clock.Stroke.Width",
