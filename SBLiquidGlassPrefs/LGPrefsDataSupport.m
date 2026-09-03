@@ -774,6 +774,14 @@ NSArray<NSDictionary *> *LGClockItems(void) {
                             56.0, 0.0, 100.0, 0),
             @"Clock.Enabled", @YES),
 
+        // ===== 字体清晰度设置 =====
+        LGSectionSetting(@"字体清晰度", @"调整字体的清晰度，解决字体模糊问题"),
+        LGSettingControlledByKey(
+            LGSwitchSetting(@"Clock.SyntheticEmbolden.Enabled",
+                            @"启用字体合成加粗",
+                            @"关闭后字体会更清晰（推荐关闭，解决模糊问题）", NO),
+            @"Clock.Enabled", @YES),
+
         // ===== 磨砂和模糊 =====
         LGSettingControlledByKey(
             LGSwitchSetting(@"Clock.Frost.Enabled",
