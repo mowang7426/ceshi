@@ -685,25 +685,28 @@ NSArray<NSDictionary *> *LGClockItems(void) {
                             1.4, 0.5, 4.0, 2),
             @"Clock.Enabled", @YES),
 
+        // ===== 字体加粗 =====
+        LGSettingControlledByKey(
+            LGSliderSetting(@"Clock.Font.Weight",
+                            @"字体粗细",
+                            @"调整锁屏时间的字体粗细（100-900，默认750）",
+                            750.0, 100.0, 900.0, 0),
+            @"Clock.Enabled", @YES),
+
         // ===== 渐变色时间（iOS 18 风格）=====
         LGSectionSetting(@"渐变色时间", @"iOS 18 风格的彩色时间显示"),
         LGSettingControlledByKey(
             LGSwitchSetting(@"Clock.Gradient.Enabled",
                             @"启用渐变色时间",
-                            @"启用后时间会显示为渐变色（彩虹/海洋/日落）", NO),
+                            @"启用后时间会显示为渐变色", NO),
             @"Clock.Enabled", @YES),
-        LGSettingControlledByKey(@{
-            @"type": @"menu",
-            @"key": @"Clock.Gradient.Style",
-            @"title": @"渐变样式",
-            @"subtitle": @"选择渐变色的样式",
-            @"default": @"rainbow",
-            @"options": @[
-                @{@"label": @"🌈 彩虹（绿→黄→红）", @"value": @"rainbow"},
-                @{@"label": @"🌊 海洋（蓝→青→绿）", @"value": @"ocean"},
-                @{@"label": @"🌅 日落（紫→粉→橙）", @"value": @"sunset"},
-            ]
-        }, @"Clock.Gradient.Enabled", @YES),
+        // 用 slider 代替 menu（0=彩虹，1=海洋，2=日落）
+        LGSettingControlledByKey(
+            LGSliderSetting(@"Clock.Gradient.Style",
+                            @"渐变样式",
+                            @"0=彩虹(绿→黄→红) 1=海洋(蓝→青→绿) 2=日落(紫→粉→橙)",
+                            0.0, 0.0, 2.0, 0),
+            @"Clock.Gradient.Enabled", @YES),
 
         // ===== 文字颜色 =====
         LGSectionSetting(@"文字颜色", @"自定义锁屏时间的文字颜色（渐变色关闭时生效）"),
