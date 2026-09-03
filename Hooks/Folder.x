@@ -18,7 +18,8 @@ static BOOL isFolderIconMaterial(UIView *mat) {
 static BOOL isOpenFolderMaterial(UIView *mat) {
     if (!hasAncestorOfClassName(mat, @"SBFolderBackgroundView")) return NO;
     CGRect b = mat.bounds;
-    return CGRectGetWidth(b) >= 200.0 && CGRectGetHeight(b) >= 200.0;
+    // 更准确的判断：文件夹展开背景通常比较大，且不是正方形图标
+    return CGRectGetWidth(b) >= 250.0 && CGRectGetHeight(b) >= 250.0;
 }
 
 #pragma mark - folder-open coordination
@@ -26,9 +27,9 @@ static BOOL isOpenFolderMaterial(UIView *mat) {
 static NSHashTable<UIView *> *sFolderIconGlasses;
 static NSHashTable<UIView *> *sFolderIconMaterials;
 static NSHashTable<UIView *> *sOpenFolderMaterials;
+static BOOL sFolderIconGlassHidden = NO; // 状态标志，避免重复调用动画
 
 CGFloat LGFolderIconCornerRadiusFallback(void) {
-    // app icon glass borrows this when its image view exposes no radius
     for (UIView *glass in sFolderIconGlasses.allObjects) {
         CGFloat radius = glass.layer.cornerRadius;
         if (isfinite(radius) && radius > 0.0) return radius;
@@ -47,22 +48,27 @@ static BOOL anyOpenFolderActive(void) {
 }
 
 static void hideFolderIconGlasses(void) {
-    // open folder and folder icon captures cannot overlap cleanly
+    if (sFolderIconGlassHidden) return; // 已经隐藏了，不重复调用
+    sFolderIconGlassHidden = YES;
     for (UIView *g in sFolderIconGlasses.allObjects) {
-        [g.layer removeAllAnimations];
-        g.alpha  = 1.0;
+        // 不调用 removeAllAnimations，避免动画中断跳跃
         g.hidden = YES;
+        g.alpha = 1.0;
     }
 }
 
 static void fadeInFolderIconGlasses(void) {
+    if (!sFolderIconGlassHidden) return; // 已经显示了，不重复调用
+    sFolderIconGlassHidden = NO;
     for (UIView *g in sFolderIconGlasses.allObjects) {
-        g.hidden = NO;
-        g.alpha  = 0.0;
-        [UIView animateWithDuration:0.2 delay:0.0
-                            options:UIViewAnimationOptionCurveEaseOut
-                         animations:^{ g.alpha = 1.0; }
-                         completion:nil];
+        if (g.hidden) {
+            g.hidden = NO;
+            g.alpha = 0.0;
+            [UIView animateWithDuration:0.25 delay:0.0
+                                options:UIViewAnimationOptionCurveEaseOut | UIViewAnimationOptionBeginFromCurrentState
+                             animations:^{ g.alpha = 1.0; }
+                             completion:nil];
+        }
     }
 }
 
@@ -78,13 +84,21 @@ static void injectFolderIcon(UIView *mat) {
     if (!sFolderIconGlasses) sFolderIconGlasses = [NSHashTable weakObjectsHashTable];
     [sFolderIconGlasses addObject:g];
     g.hidden = anyOpenFolderActive();
+    if (g.hidden) sFolderIconGlassHidden = YES;
 }
 
 static void injectOpenFolder(UIView *mat) {
-    if (!LGInstallRegisteredGlassInMaterial(mat, kGlassKey, @"OpenFolder",
-                                            UIEdgeInsetsZero, -1.0, nil)) {
-        [sOpenFolderMaterials removeObject:mat];
-        if (!anyOpenFolderActive()) fadeInFolderIconGlasses();
+    UIView *g = LGInstallRegisteredGlassInMaterial(mat, kGlassKey, @"OpenFolder",
+                                            UIEdgeInsetsZero, -1.0, nil);
+    if (!g) {
+        // 注入失败，只移除材质，不立即触发动画（避免频繁闪烁）
+        if (sOpenFolderMaterials && [sOpenFolderMaterials containsObject:mat]) {
+            [sOpenFolderMaterials removeObject:mat];
+            // 延迟检查，如果确实没有打开的文件夹了，再淡入
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                if (!anyOpenFolderActive()) fadeInFolderIconGlasses();
+            });
+        }
         return;
     }
     if (!sOpenFolderMaterials) sOpenFolderMaterials = [NSHashTable weakObjectsHashTable];
@@ -103,7 +117,10 @@ static void injectOpenFolder(UIView *mat) {
 
         if ([sOpenFolderMaterials containsObject:self_]) {
             [sOpenFolderMaterials removeObject:self_];
-            if (!anyOpenFolderActive()) fadeInFolderIconGlasses();
+            // 延迟检查，避免频繁触发动画
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                if (!anyOpenFolderActive()) fadeInFolderIconGlasses();
+            });
         }
         return;
     }
