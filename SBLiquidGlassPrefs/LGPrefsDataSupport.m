@@ -684,13 +684,36 @@ NSArray<NSDictionary *> *LGClockItems(void) {
                             1.4, 0.5, 4.0, 2),
             @"Clock.Enabled", @YES),
 
+        // 字体粗细范围扩大到 100-1500（虽然字体会限制，但给用户更多选择）
         LGSettingControlledByKey(
             LGSliderSetting(@"Clock.Font.Weight",
                             @"字体粗细",
-                            @"调整锁屏时间的字体粗细（100-900，默认750）",
-                            750.0, 100.0, 900.0, 0),
+                            @"调整锁屏时间的字体粗细（100-1500，默认750）",
+                            750.0, 100.0, 1500.0, 0),
             @"Clock.Enabled", @YES),
 
+        // ===== 字体描边（让字体看起来更粗，效果明显）=====
+        LGSectionSetting(@"字体描边", @"通过描边让字体看起来更粗，效果比字体粗细更明显"),
+        LGSettingControlledByKey(
+            LGSwitchSetting(@"Clock.Stroke.Enabled",
+                            @"启用字体描边",
+                            @"启用后字体会添加描边，看起来更粗", NO),
+            @"Clock.Enabled", @YES),
+        LGSettingControlledByKey(
+            LGSliderSetting(@"Clock.Stroke.Width",
+                            @"描边宽度",
+                            @"调整描边的宽度（0-20，默认4，越大越粗）",
+                            4.0, 0.0, 20.0, 1),
+            @"Clock.Stroke.Enabled", @YES),
+        LGSettingControlledByKey(@{
+            @"type": @"color",
+            @"key": @"Clock.Stroke.Color",
+            @"title": @"描边颜色",
+            @"subtitle": @"设置描边的颜色（默认黑色）",
+            @"default": @"#000000"
+        }, @"Clock.Stroke.Enabled", @YES),
+
+        // ===== 渐变色时间（iOS 18 风格）=====
         LGSectionSetting(@"渐变色时间", @"iOS 18 风格的彩色时间显示"),
         LGSettingControlledByKey(
             LGSwitchSetting(@"Clock.Gradient.Enabled",
@@ -704,6 +727,7 @@ NSArray<NSDictionary *> *LGClockItems(void) {
                             0.0, 0.0, 2.0, 0),
             @"Clock.Gradient.Enabled", @YES),
 
+        // ===== 文字颜色 =====
         LGSectionSetting(@"文字颜色", @"自定义锁屏时间的文字颜色（渐变色关闭时生效）"),
         LGSettingControlledByKey(@{
             @"type": @"color",
@@ -713,6 +737,7 @@ NSArray<NSDictionary *> *LGClockItems(void) {
             @"default": @"#FFFFFF"
         }, @"Clock.Enabled", @YES),
 
+        // ===== 字体清晰度 =====
         LGSectionSetting(@"字体清晰度", @"调整字体的清晰度，解决字体模糊问题"),
         LGSettingControlledByKey(
             LGSwitchSetting(@"Clock.SyntheticEmbolden.Enabled",
@@ -720,6 +745,7 @@ NSArray<NSDictionary *> *LGClockItems(void) {
                             @"关闭后字体会更清晰（推荐关闭）", NO),
             @"Clock.Enabled", @YES),
 
+        // ===== 磨砂和模糊 =====
         LGSettingControlledByKey(
             LGSwitchSetting(@"Clock.Frost.Enabled",
                             LGLocalized(@"prefs.lockscreen_clock.frost.title"),
