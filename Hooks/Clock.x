@@ -1900,16 +1900,54 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
     CGFloat fontWeight = [LGGlassPreferenceValue(@"Clock.Font.Weight") floatValue];
     if (fontWeight <= 0) fontWeight = 750.0;
 
+    // 字体描边（让字体看起来更粗，效果明显）
+    BOOL strokeEnabled = [LGGlassPreferenceValue(@"Clock.Stroke.Enabled") boolValue];
+    CGFloat strokeWidth = [LGGlassPreferenceValue(@"Clock.Stroke.Width") floatValue];
+    if (strokeWidth <= 0) strokeWidth = 4.0;
+    UIColor *strokeColor = UIColor.blackColor;
+    NSString *strokeColorHex = LG_prefString(@"Clock.Stroke.Color", @"");
+    if (strokeColorHex.length >= 7) {
+        NSString *value = [[strokeColorHex stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]
+            stringByReplacingOccurrencesOfString:@"#" withString:@""];
+        if (value.length == 6 || value.length == 8) {
+            unsigned parsed = 0;
+            if ([[NSScanner scannerWithString:value] scanHexInt:&parsed]) {
+                CGFloat red, green, blue, alpha;
+                if (value.length == 6) {
+                    red = ((parsed >> 16) & 0xff) / 255.0;
+                    green = ((parsed >> 8) & 0xff) / 255.0;
+                    blue = (parsed & 0xff) / 255.0;
+                    alpha = 1.0;
+                } else {
+                    red = ((parsed >> 24) & 0xff) / 255.0;
+                    green = ((parsed >> 16) & 0xff) / 255.0;
+                    blue = ((parsed >> 8) & 0xff) / 255.0;
+                    alpha = (parsed & 0xff) / 255.0;
+                }
+                strokeColor = [UIColor colorWithRed:red green:green blue:blue alpha:alpha];
+            }
+        }
+    }
+
+    // 构建描边属性
+    NSDictionary *strokeAttrs = nil;
+    if (strokeEnabled) {
+        strokeAttrs = @{
+            NSStrokeColorAttributeName: strokeColor,
+            NSStrokeWidthAttributeName: @(strokeWidth),
+        };
+    }
+
     if (gradientEnabled && self.textGradientLayer) {
         // 渐变色时间：用渐变层 + mask 实现
 
-        // 关键修复1：把 maskLabel 从视图层级中移除，只保留它的 layer 作为 mask
+        // 把 maskLabel 从视图层级中移除，只保留它的 layer 作为 mask
         if (mask.superview) {
             self.maskLabelOriginalSuperview = mask.superview;
             [mask removeFromSuperview];
         }
 
-        // 关键修复2：把 glassView 完全隐藏，避免底下还有一层透明的时间
+        // 把 glassView 完全隐藏，避免底下还有一层透明的时间
         self.glassView.hidden = YES;
         self.glassView.shapeMaskImage = nil;
 
@@ -1938,22 +1976,32 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
         }
         self.textGradientLayer.colors = colors;
 
-        // 设置 maskLabel 的文字（作为 mask 的内容）
+        // 设置 maskLabel 的文字（作为 mask 的内容），添加描边
         mask.textColor = UIColor.whiteColor;
         if (self.displayAttributedText.length > 0) {
             NSMutableAttributedString *m = [self.displayAttributedText mutableCopy];
             NSRange r = NSMakeRange(0, m.length);
             [m addAttribute:NSForegroundColorAttributeName value:UIColor.whiteColor range:r];
             if (self.displayFont) [m addAttribute:NSFontAttributeName value:self.displayFont range:r];
+            if (strokeAttrs) [m addAttributes:strokeAttrs range:r];
             mask.attributedText = m;
         } else {
-            mask.attributedText = nil;
-            mask.font = font;
-            mask.text = text;
+            if (strokeEnabled) {
+                NSMutableAttributedString *attrStr = [[NSMutableAttributedString alloc] initWithString:text attributes:@{
+                    NSFontAttributeName: font,
+                    NSForegroundColorAttributeName: UIColor.whiteColor,
+                }];
+                [attrStr addAttributes:strokeAttrs range:NSMakeRange(0, text.length)];
+                mask.attributedText = attrStr;
+            } else {
+                mask.attributedText = nil;
+                mask.font = font;
+                mask.text = text;
+            }
             mask.textAlignment = align;
         }
 
-        // 关键：mask 的 frame 必须和渐变层一致
+        // mask 的 frame 必须和渐变层一致
         self.textGradientLayer.frame = mask.bounds;
         self.textGradientLayer.mask = mask.layer;
 
@@ -1964,9 +2012,6 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
         if (!mask.superview && self.maskLabelOriginalSuperview) {
             [self.maskLabelOriginalSuperview addSubview:mask];
         }
-
-        // 恢复 glassView 的显示（如果需要的话）
-        // self.glassView.hidden = NO;
 
         if (self.textGradientLayer) {
             self.textGradientLayer.hidden = YES;
@@ -2004,13 +2049,23 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
             NSRange r = NSMakeRange(0, m.length);
             [m addAttribute:NSForegroundColorAttributeName value:textColor range:r];
             if (self.displayFont) [m addAttribute:NSFontAttributeName value:self.displayFont range:r];
+            if (strokeAttrs) [m addAttributes:strokeAttrs range:r];
             mask.attributedText = m;
         } else {
-            mask.attributedText = nil;
-            mask.font = font;
-            mask.text = text;
+            if (strokeEnabled) {
+                NSMutableAttributedString *attrStr = [[NSMutableAttributedString alloc] initWithString:text attributes:@{
+                    NSFontAttributeName: font,
+                    NSForegroundColorAttributeName: textColor,
+                }];
+                [attrStr addAttributes:strokeAttrs range:NSMakeRange(0, text.length)];
+                mask.attributedText = attrStr;
+            } else {
+                mask.attributedText = nil;
+                mask.font = font;
+                mask.text = text;
+                mask.textColor = textColor;
+            }
             mask.textAlignment = align;
-            mask.textColor = textColor;
         }
     }
 
@@ -2197,7 +2252,7 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
     }
 
     // 恢复 mask 图像生成（让时间显示），但保持 0.5 秒节流（减少 CPU 占用）
-    // 关键修复：启用渐变色时间时，跳过 LGQueueClockMaskImage，避免底下还有一层透明的时间
+    // 启用渐变色时间时，跳过 LGQueueClockMaskImage，避免底下还有一层透明的时间
     BOOL gradientEnabled = [LGGlassPreferenceValue(@"Clock.Gradient.Enabled") boolValue];
     if (!gradientEnabled && [self lg_maskNeedsRebuildForBounds:self.bounds]) {
         UIImage *image = [self lg_maskImageForBounds:self.bounds];
