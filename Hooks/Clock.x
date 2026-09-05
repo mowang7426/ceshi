@@ -1904,8 +1904,6 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
     BOOL strokeEnabled = [LGGlassPreferenceValue(@"Clock.Stroke.Enabled") boolValue];
     CGFloat strokeWidth = [LGGlassPreferenceValue(@"Clock.Stroke.Width") floatValue];
     if (strokeWidth <= 0) strokeWidth = 4.0;
-    // 限制描边宽度最大值，避免数字变形
-    if (strokeWidth > 10.0) strokeWidth = 10.0;
     UIColor *strokeColor = UIColor.blackColor;
     NSString *strokeColorHex = LG_prefString(@"Clock.Stroke.Color", @"");
     if (strokeColorHex.length >= 7) {
@@ -2069,6 +2067,22 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
             }
             mask.textAlignment = align;
         }
+    }
+
+    // 修复数字"2"底部的小尖角（衬线）：如果时间里包含"2"，给底部加一个裁剪
+    NSString *timeText = text.length > 0 ? text : (self.displayAttributedText.length > 0 ? self.displayAttributedText.string : @"");
+    if ([timeText containsString:@"2"]) {
+        CGFloat tailCutHeight = 15.0; // 底部裁剪高度，去掉"2"的小尖角
+        CGRect maskBounds = mask.bounds;
+        if (maskBounds.size.height > tailCutHeight + 10.0) {
+            CAShapeLayer *tailMask = [CAShapeLayer layer];
+            CGRect cutRect = CGRectMake(0, 0, maskBounds.size.width, maskBounds.size.height - tailCutHeight);
+            tailMask.path = [UIBezierPath bezierPathWithRect:cutRect].CGPath;
+            tailMask.fillColor = [UIColor blackColor].CGColor;
+            mask.layer.mask = tailMask;
+        }
+    } else {
+        mask.layer.mask = nil;
     }
 
     self.hidden = (text.length == 0 && self.displayAttributedText.length == 0);
