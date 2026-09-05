@@ -366,6 +366,8 @@ static const CGFloat kLGSpecularBrightBoostOpacity = 0.70;
 }
 
 - (void)dealloc {
+    // Cancel delayed selector callbacks before releasing the view.
+    [NSObject cancelPreviousPerformRequestsWithTarget:self];
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [sLGAllGlasses removeObject:self];
     [sLGMotionGlasses removeObject:self];
@@ -374,9 +376,12 @@ static const CGFloat kLGSpecularBrightBoostOpacity = 0.70;
 - (void)didMoveToWindow {
     [super didMoveToWindow];
     if (self.window) {
+        __weak typeof(self) weakSelf = self;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
-                           @try { [self applyFilters]; } @catch (__unused NSException *e) {}
+                           LGLiveBackdropView *strongSelf = weakSelf;
+                           if (!strongSelf || !strongSelf.window) return;
+                           @try { [strongSelf applyFilters]; } @catch (__unused NSException *e) {}
                        });
     }
 }
@@ -389,9 +394,12 @@ static const CGFloat kLGSpecularBrightBoostOpacity = 0.70;
         if (_backdropMode == LGBackdropModeStaticWallpaper) {
             [self refreshStaticWallpaper];
         }
+        __weak typeof(self) weakSelf = self;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
-                           @try { [self applyFilters]; } @catch (__unused NSException *e) {}
+                           LGLiveBackdropView *strongSelf = weakSelf;
+                           if (!strongSelf || !strongSelf.window) return;
+                           @try { [strongSelf applyFilters]; } @catch (__unused NSException *e) {}
                        });
     }
 }
@@ -638,11 +646,19 @@ static const CGFloat kLGSpecularBrightBoostOpacity = 0.70;
             }
         }
         Class filterCls = NSClassFromString(@"CAFilter");
-        if (!filterCls) { sblog("CAFilter class not found"); return; }
-        id glassFilter = ((id (*)(Class, SEL, NSString *))objc_msgSend)(
-            filterCls, NSSelectorFromString(@"filterWithType:"), wantType);
+        SEL filterSelector = NSSelectorFromString(@"filterWithType:");
+        if (!filterCls || ![filterCls respondsToSelector:filterSelector]) {
+            sblog("CAFilter/filterWithType unavailable; skipping filter install");
+            return;
+        }
+        id glassFilter = ((id (*)(id, SEL, NSString *))objc_msgSend)(
+            (id)filterCls, filterSelector, wantType);
         if (!glassFilter) {
             LGLog(@"glass#%u filterWithType nil (not registered yet?)", _lgId);
+            return;
+        }
+        if (![glassFilter isKindOfClass:NSObject.class]) {
+            LGLog(@"glass#%u invalid CAFilter object; skipping install", _lgId);
             return;
         }
         layer.filters = @[glassFilter];

@@ -264,7 +264,14 @@ static void lgEnablePrefsReloadCallback(CFNotificationCenterRef c, void *o, CFSt
         lgReconcileInjectionsForDisable();
         LGLog(@"prefs Reload reconciled material hosts; extraHandlers=%lu",
               (unsigned long)sReloadHandlers.count);
-        for (void (^handler)(void) in [sReloadHandlers copy]) handler();
+        NSArray<void (^)(void)> *handlers = [sReloadHandlers copy];
+        for (void (^handler)(void) in handlers) {
+            if (handler) {
+                @try { handler(); } @catch (NSException *e) {
+                    LGLog(@"reload handler exception: %@", e);
+                }
+            }
+        }
     });
 }
 
