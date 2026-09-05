@@ -93,7 +93,6 @@ static void scheduleFolderIconCheck(void) {
     if (sFolderIconDelayedCheck) {
         dispatch_block_cancel(sFolderIconDelayedCheck);
     }
-    __weak typeof(sFolderIconDelayedCheck) weakBlock = nil;
     sFolderIconDelayedCheck = dispatch_block_create(0, ^{
         if (anyOpenFolderActive()) {
             hideFolderIconGlasses();
@@ -101,7 +100,6 @@ static void scheduleFolderIconCheck(void) {
             fadeInFolderIconGlasses();
         }
     });
-    weakBlock = sFolderIconDelayedCheck;
     // 延迟 0.3 秒检查，等文件夹打开动画完成
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), sFolderIconDelayedCheck);
