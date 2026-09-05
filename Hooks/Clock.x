@@ -1904,6 +1904,8 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
     BOOL strokeEnabled = [LGGlassPreferenceValue(@"Clock.Stroke.Enabled") boolValue];
     CGFloat strokeWidth = [LGGlassPreferenceValue(@"Clock.Stroke.Width") floatValue];
     if (strokeWidth <= 0) strokeWidth = 4.0;
+    // 限制描边宽度最大值，避免数字变形
+    if (strokeWidth > 10.0) strokeWidth = 10.0;
     UIColor *strokeColor = UIColor.blackColor;
     NSString *strokeColorHex = LG_prefString(@"Clock.Stroke.Color", @"");
     if (strokeColorHex.length >= 7) {
@@ -1934,7 +1936,7 @@ static UIView *LGClockOverlayContainerForHost(UIView *host) {
     if (strokeEnabled) {
         strokeAttrs = @{
             NSStrokeColorAttributeName: strokeColor,
-            NSStrokeWidthAttributeName: @(strokeWidth),
+            NSStrokeWidthAttributeName: @(-strokeWidth),
         };
     }
 
