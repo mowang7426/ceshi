@@ -3,11 +3,13 @@
 #import "../Shared/LGGlassKit.h"
 #import <objc/runtime.h>
 
-#pragma mark - 通知横幅深灰色半透明磨砂玻璃效果（Mango风格）
+#pragma mark - 通知横幅完全透明液态玻璃效果（跟Dock栏一样）
 
-static void *kLGBannerDarkOverlayKey = &kLGBannerDarkOverlayKey;
+static void *kLGBannerTransparentKey = &kLGBannerTransparentKey;
 
-static void LGApplyBannerDarkFrostedEffect(UIView *material, BOOL isTopBanner) {
+static void *kLGBannerLiquidGlassKey = &kLGBannerLiquidGlassKey;
+
+static void LGApplyBannerTransparentLiquidEffect(UIView *material, BOOL isTopBanner) {
     @try {
         if (!material || !material.superview) return;
         
@@ -16,56 +18,50 @@ static void LGApplyBannerDarkFrostedEffect(UIView *material, BOOL isTopBanner) {
         
         UIView *parent = material.superview;
         
-        // 查找或创建深灰色半透明叠加层
-        UIView *darkOverlay = objc_getAssociatedObject(material, kLGBannerDarkOverlayKey);
-        if (!darkOverlay) {
-            darkOverlay = [[UIView alloc] initWithFrame:material.bounds];
-            darkOverlay.userInteractionEnabled = NO;
-            darkOverlay.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-            objc_setAssociatedObject(material, kLGBannerDarkOverlayKey, darkOverlay, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        // 查找或创建液态玻璃视图
+        LGLiveBackdropView *glass = objc_getAssociatedObject(material, kLGBannerLiquidGlassKey);
+        if (!glass) {
+            // 创建液态玻璃视图，跟Dock栏用一样的 filterType
+            NSString *filterType = LGFilterTypeForHostPrefix(@"Banner");
+            if (!filterType.length) filterType = @"dylv.liquidglass.banner";
+            
+            glass = [[LGLiveBackdropView alloc] initWithFrame:parent.bounds
+                                                     groupName:nil
+                                                    filterType:filterType];
+            glass.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+            glass.userInteractionEnabled = NO;
+            glass.backgroundColor = [UIColor clearColor];
+            glass.opaque = NO;
+            
+            // 把液态玻璃视图添加到父视图中，放在 MTMaterialView 的下面
+            [parent insertSubview:glass belowSubview:material];
+            
+            objc_setAssociatedObject(material, kLGBannerLiquidGlassKey, glass, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            
+            NSLog(@"[SBLiquidGlass-Banner] Created liquid glass view for banner");
         }
         
-        // 深灰色半透明背景（更透明，参考用户效果）
-        // alpha 0.35 可以更清楚地看到后面的内容
-        CGFloat alpha = 0.35;
-        @try {
-            id alphaValue = LGGlassPreferenceValue(@"Banner.DarkOverlay.Alpha");
-            if (alphaValue && [alphaValue respondsToSelector:@selector(floatValue)]) {
-                alpha = [alphaValue floatValue];
-            }
-        } @catch (__unused NSException *e) {}
+        // 更新液态玻璃视图的 frame 和圆角
+        glass.frame = parent.bounds;
+        CGFloat cornerRadius = material.layer.cornerRadius > 0 ? material.layer.cornerRadius : 22.0;
+        glass.layer.cornerRadius = cornerRadius;
+        glass.layer.cornerCurve = kCACornerCurveContinuous;
+        glass.layer.masksToBounds = YES;
         
-        darkOverlay.backgroundColor = [UIColor colorWithWhite:0.08 alpha:alpha];
-        darkOverlay.frame = material.bounds;
-        darkOverlay.layer.cornerRadius = material.layer.cornerRadius > 0 ? material.layer.cornerRadius : 22.0;
-        darkOverlay.layer.cornerCurve = kCACornerCurveContinuous;
-        darkOverlay.layer.masksToBounds = YES;
-        // 添加白色边框（参考用户效果）
-        darkOverlay.layer.borderWidth = 1.0;
-        darkOverlay.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.25].CGColor;
-        
-        // 把叠加层放在液态玻璃上面，内容下面
-        if (darkOverlay.superview != parent) {
-            [parent insertSubview:darkOverlay aboveSubview:material];
+        // 确保液态玻璃视图在最底层
+        if ([parent.subviews firstObject] != glass) {
+            [parent insertSubview:glass atIndex:0];
         }
         
-        // 确保原始 MTMaterialView 是透明的，让液态玻璃显示出来
-        material.backgroundColor = [UIColor clearColor];
-        if (material.layer.backgroundColor) {
-            material.layer.backgroundColor = [UIColor clearColor].CGColor;
-        }
+        // 隐藏原始的 MTMaterialView（因为液态玻璃视图已经替换了它的位置）
+        material.hidden = YES;
         
-        // 遍历子视图，清除不透明的背景
-        for (UIView *sub in [material.subviews copy]) {
-            if ([sub isKindOfClass:[UIVisualEffectView class]]) {
-                UIVisualEffectView *ev = (UIVisualEffectView *)sub;
-                ev.effect = nil;
-            }
-        }
+        // 应用滤镜
+        @try { [glass applyFilters]; } @catch (__unused NSException *e) {}
         
-        NSLog(@"[SBLiquidGlass-Banner] Dark frosted effect applied (alpha=%.2f)", alpha);
+        NSLog(@"[SBLiquidGlass-Banner] Transparent liquid effect applied (same as Dock)");
     } @catch (NSException *e) {
-        NSLog(@"[SBLiquidGlass-Banner] Dark frosted exception: %@", e);
+        NSLog(@"[SBLiquidGlass-Banner] Transparent liquid exception: %@", e);
     }
 }
 
@@ -150,10 +146,22 @@ static void LGUpdateNotificationAdaptiveOverlay(UIView *material) {
 
 static BOOL LGIsTopBannerPresentation(UIView *view) {
     if (!view.window) return NO;
-    if ([NSStringFromClass(view.window.class) isEqualToString:@"SBBannerWindow"]) return YES;
+    NSString *windowClass = NSStringFromClass(view.window.class);
+    // SBBannerWindow - 顶部横幅窗口
+    if ([windowClass isEqualToString:@"SBBannerWindow"]) return YES;
+    // SBMainDisplayBannerWindow - iOS 17 可能的类名
+    if ([windowClass containsString:@"BannerWindow"]) return YES;
+    // BNContentViewControllerView - 横幅内容视图
     if (hasAncestorOfClassName(view, @"BNContentViewControllerView")) return YES;
+    // BNContainerView - 横幅容器视图
+    if (hasAncestorOfClassName(view, @"BNContainerView")) return YES;
+    // SBBannerView - 横幅视图
+    if (hasAncestorOfClassName(view, @"SBBannerView")) return YES;
+    // 响应链判断
     if (LGResponderChainContainsClass(view, @"BNContentViewController")) return YES;
-    return LGResponderChainContainsClass(view, @"SBNotificationPresentableViewController");
+    if (LGResponderChainContainsClass(view, @"SBNotificationPresentableViewController")) return YES;
+    if (LGResponderChainContainsClass(view, @"SBBannerViewController")) return YES;
+    return NO;
 }
 
 static BOOL LGIsLightLockscreenNotificationView(UIView *view) {
@@ -231,9 +239,9 @@ static void LGUpdatePlatterGlass(UIView *material) {
         if ([prefix isEqualToString:@"Notification"]) {
             LGUpdateNotificationAdaptiveOverlay(material);
         }
-        // 顶部横幅应用深灰色半透明磨砂玻璃效果（Mango风格）
+        // 顶部横幅应用完全透明液态玻璃效果（跟Dock栏一样）
         if ([prefix isEqualToString:@"Banner"]) {
-            LGApplyBannerDarkFrostedEffect(material, topBanner);
+            LGApplyBannerTransparentLiquidEffect(material, topBanner);
         }
     } else if (LGIsPlatterActionMaterial(material)) {
 
@@ -247,11 +255,31 @@ static void LGUpdatePlatterGlass(UIView *material) {
 - (void)didMoveToWindow {
     %orig;
     UIView *self_ = (UIView *)self;
-    if (self_.window) LGUpdatePlatterGlass(self_);
+    if (!self_.window) return;
+
+    // 直接判断是否是顶部横幅（Banner），不依赖 PLPlatterView
+    BOOL isTopBanner = LGIsTopBannerPresentation(self_);
+    if (isTopBanner) {
+        // 顶部横幅直接应用完全透明液态玻璃效果（跟Dock栏一样）
+        LGApplyBannerTransparentLiquidEffect(self_, YES);
+        return;
+    }
+
+    // 其他情况走原来的 platter glass 逻辑
+    LGUpdatePlatterGlass(self_);
 }
 - (void)layoutSubviews {
     %orig;
-    LGUpdatePlatterGlass((UIView *)self);
+    UIView *self_ = (UIView *)self;
+
+    // 直接判断是否是顶部横幅（Banner）
+    BOOL isTopBanner = LGIsTopBannerPresentation(self_);
+    if (isTopBanner) {
+        LGApplyBannerTransparentLiquidEffect(self_, YES);
+        return;
+    }
+
+    LGUpdatePlatterGlass(self_);
 }
 %end
 
